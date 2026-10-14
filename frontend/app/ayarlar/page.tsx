@@ -250,6 +250,11 @@ function NotificationsCard({
   const [msg, setMsg] = useState<{ tone: "gain" | "loss"; text: string } | null>(null);
   const phoneInputRef = useRef<HTMLInputElement>(null);
   const [showPhoneEntry, setShowPhoneEntry] = useState(false);
+  const [minScore, setMinScore] = useState(String(initial.min_score ?? 0));
+
+  const minScoreNum = Number(minScore);
+  const minScoreValid = Number.isFinite(minScoreNum) && minScoreNum >= 0 && minScoreNum <= 100;
+  const minScoreDirty = minScoreValid && minScoreNum !== (prefs.min_score ?? 0);
 
   async function persist(patch: Partial<UserPreferences> & { phone?: string }) {
     setBusy(true);
@@ -326,6 +331,27 @@ function NotificationsCard({
               : "WhatsApp köprüsü sunucuda yapılandırılmamış (gönderim pasif)."
           }
         />
+      </div>
+
+      <div className="mt-3 space-y-2 rounded-lg border border-line bg-canvas/60 p-3">
+        <p className="text-sm font-semibold text-ink-900">Minimum bildirim skoru</p>
+        <p className="text-xs text-ink-500">
+          Bu skorun altındaki sinyaller size bildirim olarak gönderilmez (uygulama içi, push ve WhatsApp). 0 = tüm bildirimler.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="number"
+            min={0}
+            max={100}
+            step={1}
+            value={minScore}
+            onChange={(e) => setMinScore(e.target.value)}
+            className="w-24 rounded-lg border border-line bg-white px-3 py-2 text-sm outline-none focus:border-accent"
+          />
+          <Button variant="primary" disabled={busy || !minScoreDirty} onClick={() => persist({ min_score: minScoreNum })}>
+            Skoru kaydet
+          </Button>
+        </div>
       </div>
 
       {(prefs.whatsapp_enabled || showPhoneEntry) && (

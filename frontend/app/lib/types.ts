@@ -248,6 +248,7 @@ export type UserPreferences = {
   phone_masked: string;
   phone_set: boolean;
   whatsapp_available: boolean;
+  min_score: number;
 };
 
 export type MonitoringSettings = {

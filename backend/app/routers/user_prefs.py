@@ -36,6 +36,7 @@ DEFAULTS = {
     "sound": True,               # bildirim sesi
     "whatsapp_enabled": False,   # WhatsApp mesajı gönder
     "phone": "",                 # E.164/ulusal; whatsapp_enabled iken gerekli
+    "min_score": 0,              # kullanıcı bazlı bildirim skor eşiği (0 = tümü)
 }
 
 
@@ -100,6 +101,10 @@ async def _save(username: str, prefs: dict) -> dict:
     clean["sound"] = bool(prefs.get("sound", DEFAULTS["sound"]))
     clean["whatsapp_enabled"] = bool(prefs.get("whatsapp_enabled", DEFAULTS["whatsapp_enabled"]))
     clean["phone"] = str(prefs.get("phone", "") or "").strip()
+    try:
+        clean["min_score"] = max(0.0, min(100.0, float(prefs.get("min_score") or 0)))
+    except (TypeError, ValueError):
+        clean["min_score"] = 0.0
     await database.set_llm_setting(_key(username), json.dumps(clean))
     return clean
 
@@ -112,6 +117,7 @@ def _public(prefs: dict) -> dict:
         "phone_masked": mask_phone(prefs.get("phone", "")),
         "phone_set": bool(normalize_phone(prefs.get("phone", ""))),
         "whatsapp_available": whatsapp_notify.whatsapp_enabled(),
+        "min_score": float(prefs.get("min_score") or 0),
     }
 
 
@@ -160,6 +166,14 @@ async def put_user_preferences(payload: dict, request: Request):
             current["phone"] = normalized
         else:
             current["phone"] = ""
+    if "min_score" in payload:
+        try:
+            ms = float(payload.get("min_score"))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail="min_score sayısal olmalı (0-100)")
+        if not (0.0 <= ms <= 100.0):
+            raise HTTPException(status_code=422, detail="min_score 0-100 aralığında olmalı")
+        current["min_score"] = ms
 
     if current["whatsapp_enabled"] and not normalize_phone(current["phone"]):
         raise HTTPException(status_code=422, detail="WhatsApp için geçerli bir telefon numarası girin")

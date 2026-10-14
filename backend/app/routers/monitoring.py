@@ -851,6 +851,42 @@ async def _radar_unified_enabled() -> bool:
     return bool(settings.get("radar_unified_notify"))
 
 
+async def _user_min_score(name: str) -> float:
+    """Kullanıcının bildirim skor eşiği (0 = tüm bildirimler)."""
+    try:
+        from app.routers import user_prefs
+        prefs = await user_prefs.get_prefs_for(name)
+        return max(0.0, min(100.0, float(prefs.get("min_score") or 0)))
+    except Exception:
+        return 0.0
+
+
+async def _eligible_push_usernames(notif: dict) -> list[str] | None:
+    """Kullanıcı bazlı min_score eşiğine göre push alıcı listesi.
+
+    Dönüş None → herkes eligible (tüm abonelikler, NULL-username dahil).
+    Dönüş [] → kimse eligible (push tamamen atlanır). Aksi halde eligible
+    kullanıcı adları (`deliver_web_push(usernames=...)` filtresi).
+    """
+    try:
+        score = float(notif.get("score") or 0)
+    except (TypeError, ValueError):
+        score = 0.0
+    try:
+        users = await database.list_users()
+    except Exception as exc:
+        logger.debug("push alıcı filtresi: kullanıcı listesi alınamadı: %s", exc)
+        return None
+    named = [str(u.get("username") or "").strip() for u in users]
+    named = [n for n in named if n]
+    if not named:
+        return None
+    eligible = [n for n in named if score >= await _user_min_score(n)]
+    if len(eligible) == len(named):
+        return None  # herkes alacak → global davranış korunur
+    return eligible
+
+
 async def _send_push(notif: dict) -> bool:
     """Tek bildirimi web push ile gönder; gerçek başarı durumunu döndür.
 
@@ -860,12 +896,17 @@ async def _send_push(notif: dict) -> bool:
     Abonelik okuması `notif["..."]` ile yapılsaydı alarm zarfı KeyError verip
     sessizce gönderilemezdi.
     """
+    recipients = await _eligible_push_usernames(notif)
+    if isinstance(recipients, list) and not recipients:
+        logger.info("Monitoring push atlandı (kullanıcı eşikleri): %s", notif.get("symbol"))
+        return False
     try:
         result = await deliver_web_push(
             notif["message"],
             title=notif["title"],
             url=notif["url"],
             tag=notif["tag"],
+            usernames=recipients,
             extra={
                 "symbol": notif.get("symbol"),
                 "score": notif.get("score"),
@@ -932,6 +973,16 @@ async def _broadcast_user_whatsapp(notif: dict) -> None:
             prefs = await user_prefs.get_prefs_for(name)
             if not prefs.get("whatsapp_enabled"):
                 continue
+            try:
+                user_min = float(prefs.get("min_score") or 0)
+            except (TypeError, ValueError):
+                user_min = 0.0
+            try:
+                notif_score = float(notif.get("score") or 0)
+            except (TypeError, ValueError):
+                notif_score = 0.0
+            if user_min > 0 and notif_score < user_min:
+                continue  # kullanıcının skor eşiğinin altında
             number = user_prefs.normalize_phone(prefs.get("phone", ""))
             if not number:
                 continue

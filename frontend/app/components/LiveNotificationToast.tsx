@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLiveMessages } from "../lib/liveSocket";
 import { sound } from "../lib/sound";
 import { formatPct, formatPrice } from "../lib/format";
 import { baseAsset } from "../lib/opportunity";
+import { getJSON } from "../lib/api";
 
 export type SignalToast = {
   id: string;
@@ -21,6 +22,28 @@ const DIALOG_TTL_MS = 12_000;
 export default function LiveNotificationToast({ onSelectSymbol }: { onSelectSymbol?: (symbol: string) => void }) {
   const [toasts, setToasts] = useState<SignalToast[]>([]);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  // Kullanıcının minimum bildirim skoru (0 = tüm bildirimler).
+  const minScoreRef = useRef(0);
+
+  // Kullanıcının minimum bildirim skorunu periyodik olarak çek (Ayarlar'dan
+  // değişikliği de almak için; ucuz istek, saniyede değil dakikada bir).
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      try {
+        const r = await getJSON<{ preferences: { min_score?: number } }>("/api/user/preferences");
+        if (active) minScoreRef.current = Math.max(0, Number(r.preferences?.min_score ?? 0)) || 0;
+      } catch {
+        // Tercih alınamazsa filtreleme yapma (varsayılan davranış).
+      }
+    };
+    load();
+    const timer = window.setInterval(load, 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   // Ses ayarını localStorage veya tercihlerden al
   useEffect(() => {
@@ -51,6 +74,10 @@ export default function LiveNotificationToast({ onSelectSymbol }: { onSelectSymb
         const score = Number(row.score ?? row.quality_score ?? row.unified_score ?? row.velocity_score ?? 0);
         const price = Number(row.price ?? row.current_price ?? row.entry_price ?? 0) || null;
         const source = String(row.source ?? row.strategy ?? (msg.type === "rising_alert" ? "Yükseliş" : "Radar Sinyali"));
+
+        // Kullanıcının minimum bildirim skoru: skorlu sinyal eşiğin altındaysa gösterme.
+        const userMin = minScoreRef.current;
+        if (userMin > 0 && score > 0 && score < userMin) continue;
 
         newSignals.push({
           id: `${symbol}-${now}-${Math.random()}`,
@@ -154,6 +181,14 @@ export default function LiveNotificationToast({ onSelectSymbol }: { onSelectSymb
             ⚡ İşlem Aç
           </button>
         </div>
+
+        <button
+          type="button"
+          onClick={() => removeToast(dialog.id)}
+          className="mt-2 w-full rounded-xl px-3 py-2 text-sm font-medium text-ink-500 transition-colors hover:bg-canvas hover:text-ink-700"
+        >
+          Tamam
+        </button>
 
         {queuedCount > 0 && (
           <p className="mt-3 text-center text-[11px] text-ink-400">
