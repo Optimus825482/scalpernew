@@ -96,7 +96,13 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     return (
       <main className="grid min-h-screen place-items-center bg-canvas p-5">
         <section className="odak-card w-full max-w-md p-7">
-          <span className="grid h-10 w-10 place-items-center rounded-xl bg-accent text-base font-bold text-white">S</span>
+          <img
+            src="/icons/icon-512.png"
+            alt="Scalper Intelligent"
+            className="h-12 w-12 rounded-xl shadow-sm"
+            width={48}
+            height={48}
+          />
           <h1 className="mt-4 text-xl font-semibold text-ink-900">Scalper Intelligent Trade Systems</h1>
           <p className="mt-1 text-sm text-ink-500">PANEL</p>
 

@@ -59,11 +59,15 @@ export default function TopNav() {
         {/* Sol Logo ve Başlık */}
         <div className="flex items-center gap-4">
           <Link href="/" className="flex shrink-0 items-center gap-2.5">
-            <span className="grid h-9 w-9 place-items-center rounded-xl bg-accent text-sm font-bold text-white shadow-sm">
-              S
-            </span>
+            <img
+              src="/icons/icon-512.png"
+              alt="Scalper Intelligent"
+              className="h-9 w-9 rounded-xl shadow-sm"
+              width={36}
+              height={36}
+            />
             <div className="hidden leading-tight sm:block">
-              <span className="block text-sm font-bold tracking-tight text-ink-900">SCALPER AGENT</span>
+              <span className="block text-sm font-bold tracking-tight text-ink-900">SCALPER INTELLIGENT</span>
               <span className="block text-[9px] font-semibold uppercase tracking-[0.15em] text-accent">
                 Unified Signal Engine
               </span>

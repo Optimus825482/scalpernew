@@ -1,4 +1,4 @@
-/* Scalper Agent — Service Worker (klasik, bağımsız)
+/* Scalper Intelligent — Service Worker (klasik, bağımsız)
  * Stratejiler:
  *  - Navigasyon (HTML): network-first, zaman aşımında önbellek; çevrimdışı fallback.
  *  - /_next/static/, /icons/, /icon.svg: cache-first (değişmez varlıklar).

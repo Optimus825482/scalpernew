@@ -87,7 +87,7 @@ export default function InstallPrompt() {
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold">Uygulamayı yükle</p>
           <p className="mt-1 text-xs leading-relaxed text-white/70">
-            Scalper Agent&apos;ı telefonuna uygulama olarak kur; tam ekran, bildirimler desteklenir.
+            Scalper Intelligent&apos;ı telefonuna uygulama olarak kur; tam ekran, bildirimler desteklenir.
           </p>
         </div>
       </div>
