@@ -12,7 +12,7 @@ function chartInterval(minutes: number | null) {
   return minutes != null && minutes >= 60 ? "1h" : "5m";
 }
 
-export default function OpportunityCard({
+function OpportunityCard({
   rank,
   item,
   selected,

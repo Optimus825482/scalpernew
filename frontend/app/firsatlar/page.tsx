@@ -10,6 +10,7 @@ import { useWatchlist } from "../lib/watchlist";
 import { sound } from "../lib/sound";
 import type { ManualUnifiedScanResponse, NotificationsResponse, UnifiedScanHistoryResponse, UnifiedScanRun } from "../lib/types";
 import { Badge, Card, EmptyState, SectionHeader, Skeleton, Tabs } from "../components/ui";
+import RadarSweep from "../components/RadarSweep";
 import { downloadCsv, toCsv } from "../lib/csv";
 
 type Tab = "live" | "history";
@@ -97,6 +98,7 @@ export default function FirsatlarPage() {
 
   return (
     <div className="space-y-5">
+      <RadarSweep active={manualBusy} />
       <SectionHeader
         eyebrow="Sinyal & Tarama"
         title="Fırsat Motoru & Başarı Karnesi"

@@ -5,6 +5,7 @@ import AuthGate from "./components/AuthGate";
 import TopNav from "./components/TopNav";
 import ServiceWorkerRegister from "./components/ServiceWorkerRegister";
 import InstallPrompt from "./components/InstallPrompt";
+import SplashScreen from "./components/SplashScreen";
 
 const inter = Inter({ subsets: ["latin"], weight: ["400", "500", "600", "700"], variable: "--font-sans", display: "swap" });
 const jetbrains = JetBrains_Mono({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-mono", display: "swap" });
@@ -40,6 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="tr" suppressHydrationWarning>
       <body className={`${inter.variable} ${jetbrains.variable} font-sans min-h-screen bg-canvas text-ink-900`}>
+        <SplashScreen />
         <AuthGate>
           <TopNav />
           <div className="mx-auto max-w-[1600px] px-3 py-4 sm:px-6 sm:py-6">
