@@ -87,13 +87,22 @@ async def _send_whatsapp(*, to: str | None, text: str) -> bool:
         result = await asyncio.to_thread(_post_sync, f"{url}/send", payload, headers)
         ok = bool(result.get("ok"))
         if not ok:
-            logger.warning("WhatsApp gönderimi başarısız: %s", result.get("error"))
+            logger.debug("WhatsApp gönderimi başarısız: %s", result.get("error"))
         return ok
-    except (HTTPError, URLError, TimeoutError) as exc:
-        logger.warning("WhatsApp köprüsüne ulaşılamadı: %s", exc)
+    except HTTPError as exc:
+        # 4xx istemci hataları (numara/geçersiz JID/grup yok) yapılandırma
+        # eksikliğinden kaynaklanır; kullanıcı WhatsApp'ı kullanmıyorsa log kirliği
+        # oluşturmamalı. 5xx ve bağlantı hataları da sadece debug'da kalır.
+        if exc.code // 100 == 4:
+            logger.debug("WhatsApp köprüsü 4xx reddetti (%s): yapılandırma geçersiz", exc.code)
+        else:
+            logger.debug("WhatsApp köprüsü sunucu hatası: %s", exc)
+        return False
+    except (URLError, TimeoutError) as exc:
+        logger.debug("WhatsApp köprüsüne ulaşılamadı: %s", exc)
         return False
     except Exception as exc:
-        logger.warning("WhatsApp gönderim hatası: %s", exc)
+        logger.debug("WhatsApp gönderim hatası: %s", exc)
         return False
 
 

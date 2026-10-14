@@ -111,7 +111,9 @@ def stats() -> dict:
 
 
 def enabled_by_env() -> bool:
-    return os.getenv("LLM_SECOND_EYE_ENABLED", "1").strip().lower() not in ("0", "false", "off")
+    # Kullanıcı kararı (2026-10-14): bu uygulamada LLM entegrasyonu yok;
+    # varsayılan KAPALI, açılması açıkça LLM_SECOND_EYE_ENABLED=1 gerektirir.
+    return os.getenv("LLM_SECOND_EYE_ENABLED", "0").strip().lower() in ("1", "true", "on")
 
 
 def eligible(notif: dict | None) -> bool:

@@ -17,7 +17,6 @@ from app import database
 from app.api_common import log_user_action, _background_tasks, _start_background, get_task
 from app.state import market, analyzer
 from app import unified_signals
-from app import llm_second_eye
 from app import macd_mtf
 from app import master_surge
 from app.routers.velocity import (detect_velocity_candidates, upside_rank_score,
@@ -922,8 +921,11 @@ async def _send_push(notif: dict) -> bool:
         )
         ok = bool(result.get("ok", False))
         if not ok:
-            reason = result.get("reason", result.get("error", "unknown"))
-            logger.warning("Monitoring push failed for %s: %s", notif["symbol"], reason)
+            if result.get("skipped"):
+                logger.debug("Monitoring push atlandı (%s): %s", result.get("reason", "skipped"), notif["symbol"])
+            else:
+                reason = result.get("reason", result.get("error", "abonelikler başarısız veya yapılandırma eksik"))
+                logger.info("Monitoring push başarısız %s: %s", notif["symbol"], reason)
         return ok
     except Exception as exc:
         logger.warning("Monitoring push exception for %s: %s", notif["symbol"], exc)
@@ -1870,7 +1872,7 @@ async def _deliver_scan_notifications(notified: list) -> None:
                     except Exception as exc:
                         logger.warning("push etiketi güncellenemedi %s: %s", nid, exc)
             else:
-                logger.warning("Monitoring push gönderilemedi: %s", notif.get("symbol"))
+                logger.info("Monitoring push gönderilemedi (sebep yukarida): %s", notif.get("symbol"))
     elif new_notifs and not quiet:
         # VAPID yok: push atlanır, bildirim kaydına işlenir
         logger.info("Monitoring push atlandı: VAPID_PRIVATE_KEY yapılandırılmamış (%d bildirim)", len(new_notifs))
@@ -1893,16 +1895,10 @@ async def _deliver_scan_notifications(notified: list) -> None:
             logger.debug("kullanıcı WhatsApp yayını atlandı: %s", exc)
     # Otonom Paper Trade: Panel uyarısı veya Push ile gelen her geçerli fırsatta pozisyon aç!
     # (2026-09-22 Erkan Kararı: Panel uyarısında da açık işlem yoksa açılır; sent_via_push zorunluluğu yok).
+    # NOT (2026-10-14): LLM ikinci göz bu uygulamada kullanılmıyor; giriş anında denenir.
     try:
         from app.routers.auto_paper import try_open_from_notification
         for notif in notified:
-            # P1-3 (2026-10-07): LLM kararı bu noktada HENÜZ yok (fire-and-forget
-            # `_maybe_llm_second_eye` aşağıda başlar). Karara bağlı giriş için
-            # otonom girişi `_llm_second_eye_task` ERLER; sağlayıcı yoksa görev
-            # fail-open ile girişi yine yapar (mevcut davranış korunur).
-            if _defer_open_for_llm_second_eye(notif):
-                notif["_llm_entry_deferred"] = True
-                continue
             try:
                 await try_open_from_notification(notif)
             except Exception as exc:
@@ -1915,140 +1911,7 @@ async def _deliver_scan_notifications(notified: list) -> None:
         await ws_manager.broadcast({"type": "monitoring_alert", "data": notified})
     except Exception as exc:
         logger.warning("Monitoring WS broadcast hatasi: %s", exc)
-    # LLM İKİNCİ GÖZ (2026-09-26): teslim edilen yeni bildirimler şemalı LLM
-    # onayına gönderilir; karar ayrı bir bildirim olarak ekrana düşer.
-    _maybe_llm_second_eye(new_notifs)
-
-
-async def _llm_second_eye_task(notif: dict) -> None:
-    """Tek bildirim için LLM ikinci-göz değerlendirmesi + sonuç bildirimi.
-
-    Fire-and-forget çağrılır: LLM gecikmesi/aşımı tarama döngüsünü ASLA
-    bloklamaz. Karar zaman duyarlı olduğundan sessiz saatte değerlendirme
-    tamamen atlanır (saatler sonra pushlamak değerini yok eder).
-    """
-    sym = str(notif.get("symbol") or "?")
-    # P1-3: giriş bu göreve ERTELENDİYSE (bkz. `_defer_open_for_llm_second_eye`)
-    # karar yazıldıktan/evaluate atlandıktan sonra MUTLAKA denenmeli; aksi halde
-    # sağlayıcı yok/atlandığında giriş HİÇ olmazdı (fail-open ihlali).
-    deferred = bool(notif.get("_llm_entry_deferred"))
-    try:
-        envelope = await llm_second_eye.evaluate(notif)
-    except asyncio.CancelledError:
-        raise
-    except Exception as exc:
-        logger.warning("LLM ikinci göz görev hatası %s: %s", sym, exc)
-        if deferred:
-            await _post_llm_second_eye_entry(notif, None)  # fail-open
-        return
-    if not isinstance(envelope, dict):
-        # Karar üretilemedi (sağlayıcı yok/kota/atlandı) → fail-open giriş.
-        if deferred:
-            await _post_llm_second_eye_entry(notif, None)
-        return
-    try:
-        if await quiet_hours_active():
-            logger.info("LLM ikinci göz: %s sessiz saatte — değerlendirme atlandı", sym)
-            if deferred:
-                await _post_llm_second_eye_entry(notif, None)  # fail-open
-            return
-    except Exception:
-        pass
-    vapid_configured = bool(os.getenv("VAPID_PRIVATE_KEY", "").strip())
-    if vapid_configured:
-        ok = await _send_push(envelope)
-        envelope["push_success"] = ok
-        envelope["sent_via_push"] = ok
-        if not ok:
-            logger.warning("LLM ikinci göz push'u gönderilemedi: %s", sym)
-    await _record_history([envelope])
-    # KARARI ASIL BİLDİRİM SATIRINA BAĞLA (2026-10-07): değerlendirme bildirim
-    # kaydedildikten SONRA çalıştığı için karar yalnız INSERT anında
-    # yazılabiliyordu → kolon canlıda %98 NULL kalıyordu ve `auto_paper`'ın LLM
-    # kapısı fiilen hiç devreye girmiyordu. `notif["id"]` yeni bildirimlerde
-    # `save_monitoring_notifications` tarafından doldurulur.
-    verdict = envelope.get("llm_verdict")
-    confidence = envelope.get("llm_confidence")
-    reasons = envelope.get("llm_reasons")
-    try:
-        _nid = notif.get("id")
-        if _nid is not None:
-            await database.update_monitoring_notification_llm_verdict(
-                _nid, verdict, confidence=confidence, reasons=reasons)
-    except Exception as exc:
-        logger.debug("LLM kararı bildirim satırına yazılamadı %s: %s", sym, exc)
-    # P1-3: ertelenmiş otonom girişi karar yazıldıktan SONRA dene. Karar alanları
-    # (`llm_verdict`/`llm_confidence`/`llm_reasons`) bu adımda auto_paper'ın
-    # MEVCUT LLM kapısına taşınır → FAKE/TUZAK artık GİRİŞTE engellenir.
-    if deferred:
-        _dnotif = dict(notif)
-        _dnotif["llm_verdict"] = verdict
-        _dnotif["llm_confidence"] = confidence
-        _dnotif["llm_reasons"] = reasons
-        await _post_llm_second_eye_entry(_dnotif, envelope)
-    try:
-        await ws_manager.broadcast({"type": "monitoring_alert", "data": [envelope]})
-        logger.info("LLM ikinci göz kararı yayınlandı: %s → %s",
-                    sym, str(envelope.get("llm_verdict")))
-    except Exception as exc:
-        logger.debug("LLM ikinci göz WS yayını %s: %s", sym, exc)
-
-
-def _maybe_llm_second_eye(notified) -> None:
-    """Uygun bildirimleri LLM ikinci-göz değerlendirmesine görev olarak gönderir."""
-    if not notified:
-        return
-    for notif in notified:
-        if not llm_second_eye.eligible(notif):
-            continue
-        task = asyncio.create_task(_llm_second_eye_task(notif))
-        _background_tasks.add(task)
-        task.add_done_callback(_background_tasks.discard)
-
-
-def _defer_open_for_llm_second_eye(notif: dict) -> bool:
-    """Otonom giriş, LLM kararı yazılana kadar ERTELENMELİ mi? (P1-3, 2026-10-07)
-
-    NEDEN: `_deliver_scan_notifications` girişi, LLM kararından ÖNCE deniyordu
-    (`_maybe_llm_second_eye` fire-and-forget SONRA koşar) → giriş anında
-    `llm_verdict` BOŞ olduğundan `auto_paper`'ın LLM kapısı DAİMA geçiyordu;
-    sonradan gelen FAKE/TUZAK kararı yalnızca bir RE-OPEN'i bastırabiliyordu.
-
-    Yalnız DB satırı olan (`id`) ve LLM'e UYGUN bildirimlerde True: girişi
-    `_llm_second_eye_task` (kararı yazdıktan sonra) yapar. `id` yoksa/uygun
-    değilse False → mevcut ANLIK giriş davranışı korunur (test/legacy zarflar
-    ve hızlı-yol ile girişler etkilenmez). Sağlayıcı yoksa `evaluate` None
-    döner; görev FAIL-OPEN ile girişi yine yapar.
-    """
-    if not isinstance(notif, dict) or not notif.get("id"):
-        return False
-    try:
-        return bool(llm_second_eye.eligible(notif))
-    except Exception:
-        return False
-
-
-async def _post_llm_second_eye_entry(notif: dict, envelope: dict | None) -> None:
-    """LLM kararı yazıldıktan SONRA ertelenmiş otonom girişi dene (P1-3).
-
-    `envelope` karar alanlarını (`llm_verdict`/`llm_confidence`/`llm_reasons`)
-    taşır; `auto_paper.try_open_from_notification` bu alanlarla MEVCUT LLM
-    kapısını uygular (FAKE/TUZAK ≥50 blok, DEVAM < min_confidence blok).
-    `envelope` None (sağlayıcı yok/atlandı) → karar alanları eklenmez ve giriş
-    FAIL-OPEN yapılır: mevcut davranışla AYNI (bugün de LLM kararı olmadan
-    giriş deneniyordu), yalnızca KANITLI kötü karar engeller.
-    """
-    merged = dict(notif)
-    merged.pop("_llm_entry_deferred", None)
-    if isinstance(envelope, dict):
-        for k in ("llm_verdict", "llm_confidence", "llm_reasons"):
-            if envelope.get(k) is not None:
-                merged[k] = envelope.get(k)
-    try:
-        from app.routers.auto_paper import try_open_from_notification
-        await try_open_from_notification(merged)
-    except Exception as exc:
-        logger.debug("LLM sonrası otonom giriş %s: %s", notif.get("symbol"), exc)
+    # LLM İKİNCİ GÖZ bu uygulamada devre dışı bırakıldı (2026-10-14).
 
 
 # ---------------------------------------------------------------------------
@@ -2266,7 +2129,7 @@ async def _unified_fast_notify_impl(symbol: str, kind: str, score: float) -> dic
     logger.info("BİRLEŞİK SİNYAL: %s tetik=%s füzyon=%.1f kaynak=%s",
                 sym, kind, float(candidate.get("unified_score") or 0),
                 "+".join(notif.get("sources") or []))
-    _maybe_llm_second_eye([notif])
+    # LLM ikinci göz bu uygulamada devre dışı bırakıldı (2026-10-14).
     return notif
 
 
@@ -2554,8 +2417,7 @@ async def _rising_deliver(notified: list) -> None:
             await ws_manager.broadcast({"type": "rising_alert", "data": notified})
         except Exception as exc:
             logger.warning("Yükseliş WS broadcast hatası: %s", exc)
-    # LLM İKİNCİ GÖZ: birincil (bastırılmamış) yükseliş bildirimleri değerlendirmeye girer.
-    _maybe_llm_second_eye(primary if unified else notified)
+    # LLM İKİNCİ GÖZ bu uygulamada devre dışı bırakıldı (2026-10-14).
 
 
 async def _run_rising_scan() -> dict:
@@ -5396,9 +5258,8 @@ async def monitoring_state():
             # Backend `VAPID_PRIVATE_KEY` yapılandırılmış olsa bile abonelik yoksa
             # hiçbir push gitmez; bu blok o sessiz arızanın panelde görünmesini sağlar.
             "push": push_health,
-            # LLM İKİNCİ GÖZ TEŞHİSİ (2026-09-26): sessiz arıza görünsün —
-            # panel rozeti bu bloğu okur (karar sayısı / son hata türü).
-            "llm_second_eye": llm_second_eye.stats(),
+            # LLM İKİNCİ GÖZ bu uygulamada devre dışı bırakıldı (2026-10-14).
+            "llm_second_eye": {"enabled": False, "note": "LLM entegrasyonu bu uygulamada kapalı"},
             # M1/P0: hem ham kapı hem panel gösterim eşiği açıkça raporlanır.
             **_threshold_fields(settings),
             # M1/P1 (R4-02): canlı görev kaydından gerçek liveness.

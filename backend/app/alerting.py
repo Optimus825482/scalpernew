@@ -68,12 +68,13 @@ def _rule_value(rule, market, ticker):
 
 async def deliver_web_push(message, *, title=None, url=None, tag=None, extra=None, usernames=None):
     vapid_private, subject = os.getenv("VAPID_PRIVATE_KEY", "").strip(), os.getenv("VAPID_SUBJECT", "mailto:alerts@example.com").strip()
-    if not vapid_private: return {"ok": False, "skipped": True, "reason": "vapid_not_configured"}
+    if not vapid_private:
+        return {"ok": False, "skipped": True, "reason": "vapid_not_configured"}
     try:
         from pywebpush import webpush
-        # usernames verilirse yalnız seçili alıcıların abonelikleri hedeflenir
-        # (admin işlem bildirimi); None → tüm abonelikler (mevcut davranış).
         subscriptions = await database.list_push_subscriptions(usernames)
+        if not subscriptions:
+            return {"ok": False, "skipped": True, "reason": "no_subscriptions"}
         payload_obj = {
             "title": title or "Scalper Intelligent alarmı",
             "body": message,
@@ -93,19 +94,21 @@ async def deliver_web_push(message, *, title=None, url=None, tag=None, extra=Non
                 success_count += 1
             except Exception as sub_exc:
                 err_str = str(sub_exc).lower()
-                # 410 Gone, 404 Not Found,  expired endpoint → subscription ölü
                 if "410" in err_str or "404" in err_str or "gone" in err_str or "expired" in err_str:
                     dead_subscriptions.append(subscription.get("endpoint", ""))
-                    logger.warning("Push: ölü abonelik tespit edildi: %s", subscription.get("endpoint", "")[:60])
+                    logger.debug("Push: ölü abonelik tespit edildi: %s", subscription.get("endpoint", "")[:60])
                 else:
-                    logger.warning("Push: abonelik gönderim hatası: %s", sub_exc)
+                    logger.debug("Push: abonelik gönderim hatası: %s", sub_exc)
         if dead_subscriptions:
             try:
                 await database.remove_push_subscriptions(dead_subscriptions)
                 logger.info("Push: %d ölü abonelik temizlendi", len(dead_subscriptions))
             except Exception as cleanup_exc:
-                logger.warning("Push: abonelik temizleme hatası: %s", cleanup_exc)
-        return {"ok": success_count > 0, "count": success_count, "total": len(subscriptions),
+                logger.debug("Push: abonelik temizleme hatası: %s", cleanup_exc)
+        if success_count == 0:
+            return {"ok": False, "reason": "all_subscriptions_failed", "total": len(subscriptions),
+                    "dead_count": len(dead_subscriptions)}
+        return {"ok": True, "count": success_count, "total": len(subscriptions),
                 "dead_count": len(dead_subscriptions)}
     except Exception as exc:
         logger.error("Push teslimat hatası: %s", exc)
