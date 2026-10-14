@@ -174,7 +174,7 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
 
   const load = useCallback(async () => {
     try {
-      const response = await apiRequest(`/api/market-klines/${encodeURIComponent(symbol)}?interval=${interval}&limit=300`, { cache: "no-store" });
+      const response = await apiRequest(`/api/market-klines/${encodeURIComponent(symbol)}?interval=${interval}&limit=500`, { cache: "no-store" });
       if (!response.ok) throw new Error(`Grafik verisi alınamadı (${response.status})`);
       const body = await response.json();
       const rows = Array.isArray(body?.candles) ? body.candles.map(readCandle).filter(Boolean) as Candle[] : [];
@@ -182,7 +182,7 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
         const live = current.filter((candle) => tickAtRef.current != null && candle.time === current[current.length - 1]?.time && Date.now() - tickAtRef.current < 60_000);
         const merged = new Map(rows.map((candle) => [candle.time, candle]));
         live.forEach((candle) => merged.set(candle.time, candle));
-        return Array.from(merged.values()).sort((left, right) => left.time - right.time).slice(-300);
+        return Array.from(merged.values()).sort((left, right) => left.time - right.time).slice(-500);
       });
       setRestAt(Date.now());
       setError(rows.length ? "" : "Bu sembol ve zaman aralığı için mum verisi yok.");
@@ -200,7 +200,7 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
     setError("");
     setCandles((current) => {
       const index = current.findIndex((row) => row.time === candle.time);
-      if (index < 0) return [...current.slice(-299), candle];
+      if (index < 0) return [...current.slice(-499), candle];
       const next = current.slice(); next[index] = candle; return next;
     });
   });
@@ -221,7 +221,7 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
     let sub: IChartApi | null = null;
     void import("lightweight-charts").then((charts) => {
       if (cancelled || !containerRef.current || !subContainerRef.current) return;
-      const common = { layout: { background: { color: "#ffffff" }, textColor: "#64748b", attributionLogo: true }, grid: { vertLines: { color: "#eef2f7" }, horzLines: { color: "#eef2f7" } }, rightPriceScale: { borderColor: "#e2e8f0" }, timeScale: { borderColor: "#e2e8f0", timeVisible: true, secondsVisible: false }, crosshair: { mode: 1 } };
+      const common = { layout: { background: { color: "#ffffff" }, textColor: "#64748b", attributionLogo: true }, grid: { vertLines: { color: "#eef2f7" }, horzLines: { color: "#eef2f7" } }, rightPriceScale: { borderColor: "#e2e8f0" }, timeScale: { borderColor: "#e2e8f0", timeVisible: true, secondsVisible: false, fixLeftEdge: true, fixRightEdge: true }, crosshair: { mode: 1 }, handleScroll: { vertTouchDrag: false } };
       main = charts.createChart(containerRef.current, { ...common, width: containerRef.current.clientWidth, height: compact ? 230 : 360 });
       sub = charts.createChart(subContainerRef.current, { ...common, width: subContainerRef.current.clientWidth, height: compact ? 72 : 115, timeScale: { ...common.timeScale, visible: false } });
       chartRef.current = main; subChartRef.current = sub;
@@ -264,7 +264,8 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
     const enabled = new Set(config.enabled);
     const key = `${symbol}|${interval}|${config.enabled.join(",")}|${Object.values(config.periods).join("-")}`;
     const firstTime = candles[0]?.time ?? null;
-    const full = appliedRef.current?.key !== key || appliedRef.current?.firstTime !== firstTime;
+    const keyChanged = appliedRef.current?.key !== key;
+    const full = keyChanged || appliedRef.current?.firstTime !== firstTime;
     if (full) {
       candleSeriesRef.current.setData(candles.map((candle) => ({ time: toTime(candle.time), open: candle.open, high: candle.high, low: candle.low, close: candle.close })));
       seriesRef.current.volume?.setData(enabled.has("volume") ? candles.map((candle) => ({ time: toTime(candle.time), value: candle.volume, color: candle.close >= candle.open ? "rgba(8,166,106,.45)" : "rgba(226,71,85,.45)" })) : []);
@@ -277,7 +278,11 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
       seriesRef.current.adx?.setData(enabled.has("adx") ? lineData(values.adx) : []);
       seriesRef.current.atr?.setData(enabled.has("atr") ? lineData(values.atr) : []);
       seriesRef.current.macd?.setData(enabled.has("macd") ? candles.flatMap((candle, index) => values.histogram[index] == null ? [] : [{ time: toTime(candle.time), value: values.histogram[index] as number, color: (values.histogram[index] as number) >= 0 ? "#08a66a" : "#e24755" }]) : []);
-      chartRef.current.timeScale().fitContent(); subChartRef.current.timeScale().fitContent();
+      // fitContent yalnızca sembol/interval/gösterge değişince; pencere kayması
+      // (yeni mum gelince en eski düşer) kullanıcının yakınlaştırmasını bozmasın.
+      if (keyChanged) {
+        chartRef.current.timeScale().fitContent(); subChartRef.current.timeScale().fitContent();
+      }
       appliedRef.current = { key, firstTime };
       return;
     }
