@@ -250,7 +250,12 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
     let sub: IChartApi | null = null;
     void import("lightweight-charts").then((charts) => {
       if (cancelled || !containerRef.current || !subContainerRef.current) return;
-      const common = { layout: { background: { color: "#ffffff" }, textColor: "#64748b", attributionLogo: true }, grid: { vertLines: { color: "#eef2f7" }, horzLines: { color: "#eef2f7" } }, rightPriceScale: { borderColor: "#e2e8f0" }, timeScale: { borderColor: "#e2e8f0", timeVisible: true, secondsVisible: false, fixLeftEdge: true, fixRightEdge: true, rightOffset: 6, minBarSpacing: 0.5 }, crosshair: { mode: 1 }, handleScroll: { vertTouchDrag: false } };
+      // DİKKAT: fixRightEdge KULLANMA — sağ kenarı son bara kilitler ve
+      // rightOffset boşluk payını yok sayar; sonuç: son mum tam sağ kenara
+      // yapışıp kırpık görünür ("grafiğin sağı görünmüyor"). fixLeftEdge
+      // yeterli: veri başının ötesine kayıt engellenir, sağda ise rightOffset
+      // payıyla rahat görünüm kalır.
+      const common = { layout: { background: { color: "#ffffff" }, textColor: "#64748b", attributionLogo: true }, grid: { vertLines: { color: "#eef2f7" }, horzLines: { color: "#eef2f7" } }, rightPriceScale: { borderColor: "#e2e8f0" }, timeScale: { borderColor: "#e2e8f0", timeVisible: true, secondsVisible: false, fixLeftEdge: true, rightOffset: 6, minBarSpacing: 0.5 }, crosshair: { mode: 1 }, handleScroll: { vertTouchDrag: false } };
       main = charts.createChart(containerRef.current, { ...common, width: containerRef.current.clientWidth, height: compact ? 230 : 360 });
       sub = charts.createChart(subContainerRef.current, { ...common, width: subContainerRef.current.clientWidth, height: compact ? 72 : 115, timeScale: { ...common.timeScale, visible: false } });
       chartRef.current = main; subChartRef.current = sub;
@@ -387,8 +392,9 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
       if (keyChanged) {
         const bars = Math.max(candles.length, 1);
         const from = Math.max(0, bars - 120);
-        chartRef.current.timeScale().setVisibleLogicalRange({ from, to: bars + 4 });
-        subChartRef.current.timeScale().setVisibleLogicalRange({ from, to: bars + 4 });
+        // to: bars + rightOffset(6) → son mumun sağında boşluk payı kalır.
+        chartRef.current.timeScale().setVisibleLogicalRange({ from, to: bars + 6 });
+        subChartRef.current.timeScale().setVisibleLogicalRange({ from, to: bars + 6 });
       }
       appliedRef.current = { key, firstTime };
       return;
