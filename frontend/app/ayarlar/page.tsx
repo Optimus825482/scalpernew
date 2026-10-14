@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { API_BASE, apiRequest, getJSON } from "../lib/api";
 import { usePoll } from "../lib/hooks";
 import { useAuth } from "../lib/auth";
@@ -248,6 +248,8 @@ function NotificationsCard({
   const [phone, setPhone] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ tone: "gain" | "loss"; text: string } | null>(null);
+  const phoneInputRef = useRef<HTMLInputElement>(null);
+  const [showPhoneEntry, setShowPhoneEntry] = useState(false);
 
   async function persist(patch: Partial<UserPreferences> & { phone?: string }) {
     setBusy(true);
@@ -307,7 +309,15 @@ function NotificationsCard({
         />
         <Toggle
           checked={prefs.whatsapp_enabled}
-          onChange={(v) => persist({ whatsapp_enabled: v, ...(v ? { phone: phone || undefined } : {}) })}
+          onChange={(v) => {
+            if (v && !prefs.phone_set && !phone.trim()) {
+              setShowPhoneEntry(true);
+              setMsg({ tone: "loss", text: "Önce telefon numaranızı girip 'Numarayı kaydet'e basın." });
+              setTimeout(() => phoneInputRef.current?.focus(), 50);
+              return;
+            }
+            persist({ whatsapp_enabled: v, ...(v && phone.trim() ? { phone } : {}) });
+          }}
           disabled={busy}
           label="WhatsApp mesajı gönder"
           hint={
@@ -318,12 +328,13 @@ function NotificationsCard({
         />
       </div>
 
-      {prefs.whatsapp_enabled && (
+      {(prefs.whatsapp_enabled || showPhoneEntry) && (
         <div className="mt-3 space-y-2 rounded-lg border border-line bg-canvas/60 p-3">
           <p className="text-xs text-ink-500">
             {prefs.phone_set ? `Kayıtlı numara: ${prefs.phone_masked}` : "WhatsApp için telefon numaranızı girin."}
           </p>
           <input
+            ref={phoneInputRef}
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             placeholder="Telefon (ör. 0555 123 45 67)"

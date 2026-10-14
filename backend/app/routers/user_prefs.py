@@ -149,7 +149,17 @@ async def put_user_preferences(payload: dict, request: Request):
     if "whatsapp_enabled" in payload:
         current["whatsapp_enabled"] = bool(payload.get("whatsapp_enabled"))
     if "phone" in payload:
-        current["phone"] = str(payload.get("phone") or "").strip()
+        raw_phone = str(payload.get("phone") or "").strip()
+        if raw_phone:
+            normalized = normalize_phone(raw_phone)
+            if not normalized:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Geçersiz telefon numarası. Örnek: 0555 123 45 67",
+                )
+            current["phone"] = normalized
+        else:
+            current["phone"] = ""
 
     if current["whatsapp_enabled"] and not normalize_phone(current["phone"]):
         raise HTTPException(status_code=422, detail="WhatsApp için geçerli bir telefon numarası girin")
