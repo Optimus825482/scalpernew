@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { usePoll } from "../lib/hooks";
+import { useAuth } from "../lib/auth";
 
 type Health = { status?: string; safety?: { paper_only?: boolean }; market?: { fresh_symbols?: number } };
 
@@ -13,18 +14,22 @@ const ITEMS = [
   { href: "/emirler", label: "Açık Emirler", icon: "⧗" },
   { href: "/gecmis-islemler", label: "Geçmiş İşlemler", icon: "◷" },
   { href: "/alarmlar", label: "Fiyat Alarmları", icon: "◔" },
+  { href: "/kullanicilar", label: "Kullanıcı Yönetimi", icon: "☺", adminOnly: true },
   { href: "/ayarlar", label: "Ayarlar", icon: "⚙" },
 ];
 
 export default function SideNav() {
   const pathname = usePathname();
+  const { role } = useAuth();
+  const isAdmin = role === "admin";
   const health = usePoll<Health>("/api/system/health", 20_000);
   const active = health.data?.status === "ok";
+  const visibleItems = ITEMS.filter((item) => !item.adminOnly || isAdmin);
 
   return (
     <aside className="odak-sidebar hidden lg:flex">
       <nav aria-label="Ana menü" className="flex flex-col gap-1">
-        {ITEMS.map((item) => {
+        {visibleItems.map((item) => {
           const hrefPath = item.href.split("#")[0];
           const selected = hrefPath === "/" ? pathname === "/" : pathname.startsWith(hrefPath);
           return (

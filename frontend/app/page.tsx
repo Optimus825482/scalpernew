@@ -230,7 +230,8 @@ export default function Home() {
                   }}
                   onQuickBuy={(symbol, amount) => {
                     setSelected(`${symbol}:${item.horizonMinutes ?? "unknown"}`);
-                    setQuickAmount(amount ?? 1000);
+                    // Tutar verilmediyse panelin kendi tutarı korunur (null = override yok).
+                    setQuickAmount(amount ?? null);
                   }}
                 />
               ))}

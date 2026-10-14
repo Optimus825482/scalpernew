@@ -1292,8 +1292,8 @@ async def detect_velocity_candidates(args: dict | None = None, *, horizon_minute
     # expm1). Panel 0.6 paneli çok düşük olduğu için ham eşik de çok küçüktür —
     # amaç "her elenen aday izlemeye düşmesin".
     _watchlist_min_raw = _panel_to_raw_score(0.6)
-    watchlist = [r for r in results if r and not r["passes"] and r["velocity_score"] >= _watchlist_min_raw]
-    watchlist.sort(key=lambda r: r["velocity_score"] * r["micro_mult"], reverse=True)
+    watchlist = [r for r in results if r and not r["passes"] and (r.get("velocity_score") or 0.0) >= _watchlist_min_raw]
+    watchlist.sort(key=lambda r: (r.get("velocity_score") or 0.0) * r["micro_mult"], reverse=True)
     # "Isınıyor" (warm) şeridi (2026-09-26): eşiği kıl payı kaçıran adaylar
     # block_reason'a gömülüp görünmez olmasın — erken görünürlük listesi.
     # Auto-entry BU listeye BAĞLI DEĞİLDİR (yalnız panel/bildirim okur).

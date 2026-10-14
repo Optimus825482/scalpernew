@@ -1,4 +1,27 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <rect width="64" height="64" rx="14" fill="#0066ff"/>
-  <text x="32" y="43" font-family="ui-sans-serif, system-ui, sans-serif" font-size="34" font-weight="700" fill="#ffffff" text-anchor="middle">O</text>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0A1128"/>
+      <stop offset="1" stop-color="#12265C"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#bg)"/>
+  <!-- soluk mumlar -->
+  <g stroke="#ffffff" stroke-opacity="0.1" stroke-width="0.4">
+    <line x1="20.4" y1="37.3" x2="20.4" y2="54.3"/>
+    <line x1="27.4" y1="34.3" x2="27.4" y2="47.8"/>
+    <line x1="34.4" y1="27.8" x2="34.4" y2="46.8"/>
+  </g>
+  <g fill="#ffffff" fill-opacity="0.1">
+    <rect x="18.8" y="40.3" width="3.2" height="11.5"/>
+    <rect x="25.8" y="37.3" width="3.2" height="10.5"/>
+    <rect x="32.8" y="30.8" width="3.2" height="13"/>
+  </g>
+  <!-- yükselen grafik çizgisi (parlama + gövde) -->
+  <polyline points="13.5,44.5 24.5,32.3 30.8,38.3 49,18.5" fill="none" stroke="#3D7BFF" stroke-opacity="0.28" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="13.5,44.5 24.5,32.3 30.8,38.3 49,18.5" fill="none" stroke="#0066FF" stroke-width="4.3" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- ok ucu -->
+  <polygon points="51.5,15.8 51.1,21.1 46.3,16.7" fill="#ffffff"/>
+  <!-- hız şimşeği -->
+  <polygon points="19,10.8 13,21.3 17,21.3 14.5,30 22.3,17.8 18,17.8" fill="#ffffff" fill-opacity="0.93"/>
 </svg>

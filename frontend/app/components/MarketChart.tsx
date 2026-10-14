@@ -206,6 +206,8 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
   });
   useEffect(() => {
     const timer = window.setInterval(() => {
+      // Sekme arka plandayken saat/tick durumunu güncelleme ve REST yükü yapma.
+      if (typeof document !== "undefined" && document.hidden) return;
       setClock(Date.now());
       if (socketStatusRef.current !== "open" || !tickAtRef.current || Date.now() - tickAtRef.current > 30_000) void load();
     }, 20_000);
@@ -247,28 +249,58 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
       observer.observe(containerRef.current); observer.observe(subContainerRef.current);
       setReady(true);
     }).catch(() => setError("Grafik bileşeni yüklenemedi."));
-    return () => { cancelled = true; observer?.disconnect(); main?.remove(); sub?.remove(); chartRef.current = null; subChartRef.current = null; candleSeriesRef.current = null; seriesRef.current = {}; setReady(false); };
+    return () => { cancelled = true; observer?.disconnect(); main?.remove(); sub?.remove(); chartRef.current = null; subChartRef.current = null; candleSeriesRef.current = null; seriesRef.current = {}; appliedRef.current = null; setReady(false); };
   }, [compact]);
 
   const values = useMemo(() => calculate(candles, config.periods), [candles, config.periods]);
+  // Uygulama anahtarı: sembol/interval/gösterge kümesi veya mum dizisinin
+  // başlangıcı değişmediyse (yani yalnızca son mum tick'lendiyse) seri başına
+  // tam `setData` + `fitContent` yerine ucuz `update(last)` kullanılır.
+  const appliedRef = useRef<{ key: string; firstTime: number | null } | null>(null);
   useEffect(() => {
     if (!ready || !candleSeriesRef.current || !chartRef.current || !subChartRef.current) return;
     const toTime = (value: number) => value as UTCTimestamp;
     const lineData = (input: Array<number | null>) => candles.flatMap((candle, index) => input[index] == null ? [] : [{ time: toTime(candle.time), value: input[index] as number }]);
     const enabled = new Set(config.enabled);
-    candleSeriesRef.current.setData(candles.map((candle) => ({ time: toTime(candle.time), open: candle.open, high: candle.high, low: candle.low, close: candle.close })));
-    seriesRef.current.volume?.setData(enabled.has("volume") ? candles.map((candle) => ({ time: toTime(candle.time), value: candle.volume, color: candle.close >= candle.open ? "rgba(8,166,106,.45)" : "rgba(226,71,85,.45)" })) : []);
-    seriesRef.current.sma?.setData(enabled.has("sma") ? lineData(values.sma) : []);
-    seriesRef.current.ema?.setData(enabled.has("ema") ? lineData(values.ema) : []);
-    seriesRef.current.upper?.setData(enabled.has("bollinger") ? lineData(values.upper) : []);
-    seriesRef.current.lower?.setData(enabled.has("bollinger") ? lineData(values.lower) : []);
-    seriesRef.current.vwap?.setData(enabled.has("vwap") ? lineData(values.vwap) : []);
-    seriesRef.current.rsi?.setData(enabled.has("rsi") ? lineData(values.rsi) : []);
-    seriesRef.current.adx?.setData(enabled.has("adx") ? lineData(values.adx) : []);
-    seriesRef.current.atr?.setData(enabled.has("atr") ? lineData(values.atr) : []);
-    seriesRef.current.macd?.setData(enabled.has("macd") ? candles.flatMap((candle, index) => values.histogram[index] == null ? [] : [{ time: toTime(candle.time), value: values.histogram[index] as number, color: (values.histogram[index] as number) >= 0 ? "#08a66a" : "#e24755" }]) : []);
-    chartRef.current.timeScale().fitContent(); subChartRef.current.timeScale().fitContent();
-  }, [candles, config.enabled, ready, values]);
+    const key = `${symbol}|${interval}|${config.enabled.join(",")}|${Object.values(config.periods).join("-")}`;
+    const firstTime = candles[0]?.time ?? null;
+    const full = appliedRef.current?.key !== key || appliedRef.current?.firstTime !== firstTime;
+    if (full) {
+      candleSeriesRef.current.setData(candles.map((candle) => ({ time: toTime(candle.time), open: candle.open, high: candle.high, low: candle.low, close: candle.close })));
+      seriesRef.current.volume?.setData(enabled.has("volume") ? candles.map((candle) => ({ time: toTime(candle.time), value: candle.volume, color: candle.close >= candle.open ? "rgba(8,166,106,.45)" : "rgba(226,71,85,.45)" })) : []);
+      seriesRef.current.sma?.setData(enabled.has("sma") ? lineData(values.sma) : []);
+      seriesRef.current.ema?.setData(enabled.has("ema") ? lineData(values.ema) : []);
+      seriesRef.current.upper?.setData(enabled.has("bollinger") ? lineData(values.upper) : []);
+      seriesRef.current.lower?.setData(enabled.has("bollinger") ? lineData(values.lower) : []);
+      seriesRef.current.vwap?.setData(enabled.has("vwap") ? lineData(values.vwap) : []);
+      seriesRef.current.rsi?.setData(enabled.has("rsi") ? lineData(values.rsi) : []);
+      seriesRef.current.adx?.setData(enabled.has("adx") ? lineData(values.adx) : []);
+      seriesRef.current.atr?.setData(enabled.has("atr") ? lineData(values.atr) : []);
+      seriesRef.current.macd?.setData(enabled.has("macd") ? candles.flatMap((candle, index) => values.histogram[index] == null ? [] : [{ time: toTime(candle.time), value: values.histogram[index] as number, color: (values.histogram[index] as number) >= 0 ? "#08a66a" : "#e24755" }]) : []);
+      chartRef.current.timeScale().fitContent(); subChartRef.current.timeScale().fitContent();
+      appliedRef.current = { key, firstTime };
+      return;
+    }
+    // Artımlı yol: yalnızca son mum güncellendi/eklendi.
+    const lastIndex = candles.length - 1;
+    const lastCandle = candles[lastIndex];
+    if (!lastCandle) return;
+    const lastTime = toTime(lastCandle.time);
+    const lastValue = (input: Array<number | null>) => input[lastIndex] == null ? null : input[lastIndex] as number;
+    candleSeriesRef.current.update({ time: lastTime, open: lastCandle.open, high: lastCandle.high, low: lastCandle.low, close: lastCandle.close });
+    if (enabled.has("volume")) seriesRef.current.volume?.update({ time: lastTime, value: lastCandle.volume, color: lastCandle.close >= lastCandle.open ? "rgba(8,166,106,.45)" : "rgba(226,71,85,.45)" });
+    if (enabled.has("sma") && lastValue(values.sma) != null) seriesRef.current.sma?.update({ time: lastTime, value: lastValue(values.sma) as number });
+    if (enabled.has("ema") && lastValue(values.ema) != null) seriesRef.current.ema?.update({ time: lastTime, value: lastValue(values.ema) as number });
+    if (enabled.has("bollinger")) {
+      if (lastValue(values.upper) != null) seriesRef.current.upper?.update({ time: lastTime, value: lastValue(values.upper) as number });
+      if (lastValue(values.lower) != null) seriesRef.current.lower?.update({ time: lastTime, value: lastValue(values.lower) as number });
+    }
+    if (enabled.has("vwap") && lastValue(values.vwap) != null) seriesRef.current.vwap?.update({ time: lastTime, value: lastValue(values.vwap) as number });
+    if (enabled.has("rsi") && lastValue(values.rsi) != null) seriesRef.current.rsi?.update({ time: lastTime, value: lastValue(values.rsi) as number });
+    if (enabled.has("adx") && lastValue(values.adx) != null) seriesRef.current.adx?.update({ time: lastTime, value: lastValue(values.adx) as number });
+    if (enabled.has("atr") && lastValue(values.atr) != null) seriesRef.current.atr?.update({ time: lastTime, value: lastValue(values.atr) as number });
+    if (enabled.has("macd") && lastValue(values.histogram) != null) seriesRef.current.macd?.update({ time: lastTime, value: lastValue(values.histogram) as number, color: (lastValue(values.histogram) as number) >= 0 ? "#08a66a" : "#e24755" });
+  }, [candles, config.enabled, ready, values, symbol, interval]);
 
   const filteredSymbols = useMemo(() => {
     const query = normalizeSymbol(search);

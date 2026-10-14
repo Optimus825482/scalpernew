@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import Link from "next/link";
 import { formatPct, formatPrice } from "../lib/format";
 import type { OpportunityView } from "../lib/opportunity";
@@ -167,12 +167,12 @@ export default function OpportunityCard({
               type="button"
               onClick={() => {
                 onSelect();
-                onQuickBuy?.(item.symbol, 1000);
+                onQuickBuy?.(item.symbol);
               }}
               className="flex min-h-[2.5rem] items-center justify-center gap-1 rounded-lg bg-accent px-2 text-[11px] font-semibold text-white shadow-sm transition-colors hover:bg-accent/90 sm:text-xs"
             >
               <span>⚡</span>
-              <span className="truncate">Panele aktar · ₺1.000</span>
+              <span className="truncate">Panele aktar</span>
             </button>
 
             <button
@@ -281,3 +281,18 @@ export default function OpportunityCard({
     </>
   );
 }
+
+/**
+ * Performans: sayfa her yoklamada (20 sn) veya üst durum değiştiğinde (toast,
+ * hızlı tutar vb.) 12 kart yeniden render ediliyordu. memo ile yalnızca kendi
+ * verisi/seçimi değişen kartlar yeniden çizilir; fonksiyon prop'ları her render
+ * yeni closure olsa da veri aynıysa davranışları da aynıdır, bu yüzden
+ * karşılaştırmaya dahil edilmez.
+ */
+export default memo(
+  OpportunityCard,
+  (previous, next) =>
+    previous.rank === next.rank &&
+    previous.selected === next.selected &&
+    previous.item === next.item,
+);

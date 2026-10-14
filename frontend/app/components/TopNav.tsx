@@ -17,6 +17,7 @@ const NAV = [
   { href: "/emirler", label: "Açık Emirler" },
   { href: "/gecmis-islemler", label: "İşlem Geçmişi" },
   { href: "/alarmlar", label: "Alarmlar" },
+  { href: "/kullanicilar", label: "Kullanıcı Yönetimi", adminOnly: true },
   { href: "/ayarlar", label: "Ayarlar" },
 ];
 
@@ -71,7 +72,7 @@ export default function TopNav() {
 
           {/* Menü Sekmeleri (mobilde kaydırılabilir, kaydırma çubuğu gizli) */}
           <nav className="odak-ticker-scroll flex min-w-0 flex-1 items-center gap-1 overflow-x-auto sm:flex-none" aria-label="Ana navigasyon">
-            {NAV.map((item) => {
+            {NAV.filter((item) => !item.adminOnly || isAdmin).map((item) => {
               const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
               return (
                 <Link

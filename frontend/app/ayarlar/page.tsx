@@ -342,6 +342,214 @@ function NotificationsCard({
       )}
 
       {msg && <p className={`mt-2 text-xs ${msg.tone === "gain" ? "text-gain" : "text-loss"}`}>{msg.text}</p>}
+
+      <div className="mt-4 border-t border-line pt-4">
+        <PushNotifications />
+      </div>
     </Card>
+  );
+}
+
+/* ---------- Tarayıcı push bildirimleri ---------- */
+
+/** VAPID public key'i base64url'den Uint8Array'e çevirir (applicationServerKey). */
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  const output = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) output[i] = raw.charCodeAt(i);
+  return output;
+}
+
+type PushState = "unsupported" | "default" | "denied" | "granted-subscribed" | "granted-unsubscribed";
+
+function PushNotifications() {
+  const [state, setState] = useState<PushState>("default");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ tone: "gain" | "loss"; text: string } | null>(null);
+
+  useEffect(() => {
+    // iOS Safari < 16.4 vb. push desteklemez.
+    if (typeof window === "undefined" || !("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+      setState("unsupported");
+      return;
+    }
+    const perm = Notification.permission;
+    if (perm === "denied") {
+      setState("denied");
+      return;
+    }
+    if (perm !== "granted") {
+      setState("default");
+      return;
+    }
+    // İzin var: mevcut aboneliği kontrol et.
+    navigator.serviceWorker.ready
+      .then((reg) => reg.pushManager.getSubscription())
+      .then((sub) => setState(sub ? "granted-subscribed" : "granted-unsubscribed"))
+      .catch(() => setState("granted-unsubscribed"));
+  }, []);
+
+  /** VAPID anahtarı: env varsa onu kullan, yoksa backend'den çek. */
+  async function resolveVapidKey(): Promise<string> {
+    const envKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    if (envKey) return envKey;
+    const res = await apiRequest(`${API_BASE}/api/monitoring/push-health`, { cache: "no-store" });
+    if (!res.ok) throw new Error(`VAPID anahtarı alınamadı (${res.status})`);
+    const data = await res.json();
+    if (!data?.vapid_public_key) throw new Error("Sunucuda VAPID anahtarı yapılandırılmamış");
+    return String(data.vapid_public_key);
+  }
+
+  async function requestPermission() {
+    setBusy(true);
+    setMsg(null);
+    try {
+      // iOS'ta kullanıcı hareketi içinde çağrılmalı — buton onClick olduğu için uygun.
+      const perm = await Notification.requestPermission();
+      if (perm === "granted") {
+        setState("granted-unsubscribed");
+        setMsg({ tone: "gain", text: "Bildirim izni verildi. Şimdi bildirimleri etkinleştirin." });
+      } else if (perm === "denied") {
+        setState("denied");
+        setMsg({ tone: "loss", text: "Bildirim izni reddedildi." });
+      } else {
+        setMsg({ tone: "loss", text: "Bildirim izni verilmedi." });
+      }
+    } catch (e) {
+      setMsg({ tone: "loss", text: e instanceof Error ? e.message : "İzin istenemedi" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function subscribe() {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const vapidKey = await resolveVapidKey();
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidKey),
+      });
+      const res = await apiRequest(`${API_BASE}/api/alerts/push-subscription`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(sub.toJSON()),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        await sub.unsubscribe().catch(() => {});
+        throw new Error(body.detail || `Kaydedilemedi (${res.status})`);
+      }
+      setState("granted-subscribed");
+      setMsg({ tone: "gain", text: "Tarayıcı bildirimleri etkinleştirildi." });
+    } catch (e) {
+      setMsg({ tone: "loss", text: e instanceof Error ? e.message : "Etkinleştirilemedi" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sendPushTest() {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await apiRequest(`${API_BASE}/api/alerts/push-test`, { method: "POST" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.detail || `Gönderilemedi (${res.status})`);
+      setMsg({ tone: "gain", text: "Test bildirimi gönderildi." });
+    } catch (e) {
+      setMsg({ tone: "loss", text: e instanceof Error ? e.message : "Gönderilemedi" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function unsubscribe() {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        const ok = await sub.unsubscribe();
+        setMsg({
+          tone: ok ? "gain" : "loss",
+          text: ok
+            ? "Bildirimler kapatıldı. Sunucudaki kayıt zaman aşımıyla temizlenir."
+            : "Abonelik kaldırılamadı.",
+        });
+      }
+      setState("granted-unsubscribed");
+    } catch (e) {
+      setMsg({ tone: "loss", text: e instanceof Error ? e.message : "Kapatılamadı" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (state === "unsupported") {
+    return (
+      <div>
+        <p className="odak-kicker">Tarayıcı bildirimleri</p>
+        <p className="mt-2 text-xs text-ink-500">Bu tarayıcı push bildirimlerini desteklemiyor.</p>
+      </div>
+    );
+  }
+
+  const permBadge =
+    state === "denied" ? (
+      <span className="rounded-full border border-loss/25 bg-loss-soft px-2 py-0.5 text-[11px] font-medium text-loss">
+        Reddedildi — tarayıcı ayarlarından açın
+      </span>
+    ) : state === "granted-subscribed" || state === "granted-unsubscribed" ? (
+      <span className="rounded-full border border-gain/25 bg-gain-soft px-2 py-0.5 text-[11px] font-medium text-gain">
+        İzin verildi
+      </span>
+    ) : (
+      <span className="rounded-full border border-line bg-canvas px-2 py-0.5 text-[11px] font-medium text-ink-500">
+        İzin bekliyor
+      </span>
+    );
+
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <p className="odak-kicker">Tarayıcı bildirimleri</p>
+        {permBadge}
+      </div>
+      <p className="mt-2 text-xs text-ink-500">
+        Sistem bildirimlerini tarayıcı kapalıyken de masaüstüne/mobil cihaza push olarak alın.
+      </p>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {state === "default" && (
+          <Button variant="primary" disabled={busy} onClick={requestPermission}>
+            {busy ? "İsteniyor…" : "Bildirim izni ver"}
+          </Button>
+        )}
+        {state === "granted-unsubscribed" && (
+          <Button variant="primary" disabled={busy} onClick={subscribe}>
+            {busy ? "Etkinleştiriliyor…" : "Bildirimleri etkinleştir"}
+          </Button>
+        )}
+        {state === "granted-subscribed" && (
+          <>
+            <span className="rounded-full border border-gain/25 bg-gain-soft px-2 py-0.5 text-[11px] font-medium text-gain">Etkin</span>
+            <Button disabled={busy} onClick={sendPushTest}>
+              Test bildirimi gönder
+            </Button>
+            <Button disabled={busy} onClick={unsubscribe}>
+              Bildirimleri kapat
+            </Button>
+          </>
+        )}
+      </div>
+
+      {msg && <p className={`mt-2 text-xs ${msg.tone === "gain" ? "text-gain" : "text-loss"}`}>{msg.text}</p>}
+    </div>
   );
 }

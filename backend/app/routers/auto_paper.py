@@ -1507,7 +1507,11 @@ async def _broadcast_trade(data: dict):
 # ---------------------------------------------------------------------------
 async def get_default_settings() -> dict:
     return {
-        "enabled": True,
+        # 2026-10-14 (Erkan kararı): otonom paper trade VARSAYILAN KAPALI.
+        # Bu platformda yalnızca manuel kullanıcı emirleri isteniyor; motor
+        # ancak ayarlardan (`PUT /api/auto-paper/settings {"enabled": true}`)
+        # açıkça etkinleştirilirse sinyalleri işler.
+        "enabled": False,
         "min_score": config.AUTO_PAPER_MIN_SCORE_DEFAULT,
         "balance_pct": config.AUTO_PAPER_BALANCE_PCT_DEFAULT,
         "stop_loss_pct": config.AUTO_PAPER_SL_PCT_DEFAULT,

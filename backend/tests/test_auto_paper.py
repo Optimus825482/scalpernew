@@ -975,6 +975,8 @@ class AutoPaperP0P2FixTests(unittest.IsolatedAsyncioTestCase):
         notif = _make_notification(symbol=sym, score=90.0, target_pct=5.0, price=100.0)
         with patch.object(auto_paper.database, "get_open_auto_paper_trade", AsyncMock(return_value=open_trade)), \
              patch.object(auto_paper.database, "get_last_auto_paper_entry_time", AsyncMock(return_value=now - 60.0)) as dedup_mock, \
+             patch.object(auto_paper, "get_auto_paper_settings", AsyncMock(return_value={
+                 "enabled": True, "min_score": 0.0, "dedup_cooldown_minutes": 60.0})), \
              patch("app.routers.auto_paper.market.ticker_freshness", return_value={"fresh": True, "age_sec": 0.0}), \
              patch("app.routers.auto_paper.market.get_ticker", return_value={"last_price": 100.0, "timestamp": now * 1000}), \
              patch.object(auto_paper, "_update_existing_trade", AsyncMock(return_value={"status": "tp_updated"})) as upd_mock:
