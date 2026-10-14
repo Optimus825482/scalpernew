@@ -1,0 +1,32 @@
+# SCALPERNEW — bağımsız repo gitignore
+# Secret'lar ASLA commit edilmez
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Node / Next.js
+node_modules/
+.next/
+*.tsbuildinfo
+next-env.d.ts
+
+# Veri / log
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.log
+data/
+auth/
+
+# OS
+Thumbs.db
+.DS_Store
