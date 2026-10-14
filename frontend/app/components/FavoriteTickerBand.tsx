@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { apiRequest } from "../lib/api";
 
+import AppLink from "./AppLink";
+
 export type FavoriteTicker = {
   symbol: string;
   available: boolean;
@@ -91,12 +93,18 @@ export default function FavoriteTickerBand({ favorites }: Props) {
             const color = itemStale ? "text-slate-400" : direction === "up" ? "text-emerald-400" : direction === "down" ? "text-rose-400" : "text-slate-200";
             const change = ticker?.change_pct;
             return (
-              <div key={symbol} role="listitem" className={`flex shrink-0 items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 font-mono text-[11px] ${color}`}>
+              <AppLink
+                key={symbol}
+                href={`/grafik?symbol=${encodeURIComponent(symbol)}`}
+                role="listitem"
+                className={`flex shrink-0 items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 font-mono text-[11px] transition-colors hover:bg-white/15 cursor-pointer ${color}`}
+                title={`${symbol} grafiğini aç`}
+              >
                 <span className="font-semibold">{symbol}</span>
                 <span>{ticker?.available && ticker.last != null ? ticker.last.toLocaleString("tr-TR", { maximumSignificantDigits: 8 }) : "—"}</span>
                 <span>{change == null ? "(—)" : `(${change >= 0 ? "+" : ""}${change.toFixed(2)}%)`}</span>
                 {itemStale && <span className="rounded bg-amber-400/15 px-1 text-[9px] text-amber-300">ESKİ</span>}
-              </div>
+              </AppLink>
             );
           })}
         </div>

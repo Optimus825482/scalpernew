@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import MarketChart from "../components/MarketChart";
-import { Card, SectionHeader } from "../components/ui";
+import { Card, SectionHeader, Skeleton } from "../components/ui";
 import { usePoll } from "../lib/hooks";
 import { useWatchlist } from "../lib/watchlist";
 import { useAuth } from "../lib/auth";
@@ -12,11 +13,12 @@ import type { MarketSymbols } from "../lib/types";
 type Panels = 1 | 2 | 4;
 type ChartPanel = { symbol: string; interval: string };
 const DEFAULT_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLTRY", "AVAXTRY"];
-const INTERVALS = ["1m", "5m", "15m", "1h", "4h", "1d"];
+const INTERVALS = ["1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"];
 const defaultPanels = (): ChartPanel[] => DEFAULT_SYMBOLS.map((symbol) => ({ symbol, interval: "5m" }));
 
-export default function GrafikPage() {
+function GrafikContent() {
   const { username } = useAuth();
+  const searchParams = useSearchParams();
   const [panelCount, setPanelCount] = useState<Panels>(1);
   const [panelConfigs, setPanelConfigs] = useState<ChartPanel[]>(defaultPanels);
   const [syncPanels, setSyncPanels] = useState(false);
@@ -27,12 +29,8 @@ export default function GrafikPage() {
 
   const symbolOptions = useMemo(() => Array.from(new Set([...favorites, ...DEFAULT_SYMBOLS, ...(marketSymbols.data?.symbols || [])])), [favorites, marketSymbols.data?.symbols]);
 
+  // localStorage yüklemesi
   useEffect(() => {
-    let querySymbol = "";
-    let queryInterval = "";
-    const query = new URLSearchParams(window.location.search);
-    querySymbol = (query.get("symbol") || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    queryInterval = query.get("interval") || "";
     try {
       const raw = localStorage.getItem(storageKey);
       const saved = raw ? JSON.parse(raw) : null;
@@ -50,10 +48,33 @@ export default function GrafikPage() {
     } catch {
       setPanelConfigs(defaultPanels());
     }
-    if (querySymbol) setPanelConfigs((previous) => previous.map((panel, index) => index === 0 ? { ...panel, symbol: querySymbol } : panel));
-    if (INTERVALS.includes(queryInterval)) setPanelConfigs((previous) => previous.map((panel, index) => index === 0 ? { ...panel, interval: queryInterval } : panel));
     setLoaded(true);
   }, [storageKey]);
+
+  // Query parametreleri reaktif takibi (Link veya router.push ile sembol değiştiğinde anında tetiklenir)
+  const querySymbol = (searchParams.get("symbol") || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const queryInterval = searchParams.get("interval") || "";
+
+  useEffect(() => {
+    if (querySymbol) {
+      updatePanel(0, "symbol", querySymbol);
+    }
+    if (INTERVALS.includes(queryInterval)) {
+      updatePanel(0, "interval", queryInterval);
+    }
+  }, [querySymbol, queryInterval]);
+
+  // Global sembol seçim olayı (CommandPalette ve FavoriteTickerBand'den tetiklenir)
+  useEffect(() => {
+    const onSelect = (e: CustomEvent<string>) => {
+      if (e.detail) {
+        const clean = String(e.detail).toUpperCase().replace(/[^A-Z0-9]/g, "");
+        if (clean) updatePanel(0, "symbol", clean);
+      }
+    };
+    window.addEventListener("odak:select-symbol", onSelect as EventListener);
+    return () => window.removeEventListener("odak:select-symbol", onSelect as EventListener);
+  }, [syncPanels]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -104,5 +125,13 @@ export default function GrafikPage() {
       </div>
       <p className="text-[11px] text-ink-400">Hazır göstergeler: Hacim, SMA, EMA, Bollinger Bands, RSI, MACD, VWAP, ATR ve ADX. Grafik kütüphanesi: TradingView Lightweight Charts™.</p>
     </div>
+  );
+}
+
+export default function GrafikPage() {
+  return (
+    <Suspense fallback={<Skeleton className="h-96" />}>
+      <GrafikContent />
+    </Suspense>
   );
 }

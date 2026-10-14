@@ -5222,7 +5222,9 @@ async def mark_monitoring_push_sent(notification_id):
 
 async def get_monitoring_velocity_matches(limit: int | None = 1000, day: str | None = None,
                                           slim: bool = False,
-                                          ignore_reports_baseline: bool = False):
+                                          ignore_reports_baseline: bool = False,
+                                          from_ts: float | None = None,
+                                          to_ts: float | None = None):
     """Bildirimleri ayni andaki velocity adayiyla karsilastir (salt okunur).
 
 monitoring_notifications VE velocity_candidates ayni tarama turunda
@@ -5257,7 +5259,14 @@ monitoring_notifications VE velocity_candidates ayni tarama turunda
         params: list = []
         lower = None
         upper = None
-        if day:
+        if from_ts is not None or to_ts is not None:
+            # Yeni: açık zaman aralığı filtresi (epoch saniye). day ile birlikte
+            # verilmemeli; verilirse bu önceliklidir.
+            if from_ts is not None:
+                lower = float(from_ts)
+            if to_ts is not None:
+                upper = float(to_ts)
+        elif day:
             try:
                 day_start = datetime.strptime(str(day), '%Y-%m-%d').replace(tzinfo=timezone(timedelta(hours=3)))
             except ValueError:

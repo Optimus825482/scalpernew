@@ -6,9 +6,11 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../lib/auth";
 import { useLiveStatus } from "../lib/liveSocket";
 import { useWatchlist } from "../lib/watchlist";
+import { apiRequest } from "../lib/api";
 import { sound } from "../lib/sound";
 import { Badge, Button } from "./ui";
 import FavoriteTickerBand from "./FavoriteTickerBand";
+import CommandPalette from "./CommandPalette";
 
 const NAV = [
   { href: "/", label: "Anasayfa" },
@@ -26,11 +28,53 @@ export default function TopNav() {
   const { username, role, logout } = useAuth();
   const [busy, setBusy] = useState(false);
   const [soundActive, setSoundActive] = useState(true);
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [latency, setLatency] = useState<number | null>(null);
   const liveStatus = useLiveStatus();
   const { favorites } = useWatchlist();
 
   const isAdmin = role === "admin";
   const initial = (username || "?").charAt(0).toUpperCase();
+
+  // Global Ctrl+K / Cmd+K listener
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setCommandOpen((open) => !open);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  // Ağ gecikmesi (Ping latency) ölçümü: backend API gidiş-dönüş süresi
+  useEffect(() => {
+    let active = true;
+    async function measurePing() {
+      if (document.hidden) return;
+      const start = performance.now();
+      try {
+        const res = await apiRequest("/api/auth/status", { method: "GET", cache: "no-store" });
+        if (active) {
+          if (res.ok) {
+            const delta = Math.round(performance.now() - start);
+            setLatency(delta);
+          } else {
+            setLatency(null);
+          }
+        }
+      } catch {
+        if (active) setLatency(null);
+      }
+    }
+    void measurePing();
+    const interval = setInterval(measurePing, 20_000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     try {
@@ -96,8 +140,37 @@ export default function TopNav() {
           </nav>
         </div>
 
-        {/* Sağ: Durum Göstergeleri ve Kullanıcı */}
+        {/* Sağ: Arama, Durum Göstergeleri ve Kullanıcı */}
         <div className="flex items-center gap-2 sm:gap-3">
+          {/* Hızlı Arama Butonu (Cmd+K) */}
+          <button
+            type="button"
+            onClick={() => setCommandOpen(true)}
+            className="flex items-center gap-2 rounded-lg border border-line bg-canvas/60 px-2.5 py-1 text-xs text-ink-600 hover:border-accent hover:text-accent transition-colors"
+            title="Hızlı Sembol & Komut Arama (Ctrl+K)"
+          >
+            <span className="text-ink-400">🔍</span>
+            <span className="hidden md:inline font-mono text-[11px] text-ink-500">Hızlı Ara…</span>
+            <kbd className="hidden sm:inline rounded bg-white px-1.5 py-0.5 font-mono text-[10px] font-semibold text-ink-400 border border-line shadow-2xs">
+              ⌘K
+            </kbd>
+          </button>
+
+          {/* Ağ Gecikmesi (Ping) Göstergesi */}
+          {latency !== null && (
+            <div
+              className="hidden lg:flex items-center gap-1 font-mono text-[11px] text-ink-500"
+              title={`Ağ gecikmesi: ${latency}ms`}
+            >
+              <span
+                className={`inline-block h-1.5 w-1.5 rounded-full ${
+                  latency < 100 ? "bg-gain" : latency < 300 ? "bg-warn" : "bg-loss"
+                }`}
+              />
+              <span>{latency}ms</span>
+            </div>
+          )}
+
           {/* Favoriler Rozeti */}
           {favorites.length > 0 && (
             <AppLink
@@ -122,7 +195,7 @@ export default function TopNav() {
             title={soundActive ? "Sinyal sesi açık (kapatmak için tıkla)" : "Sinyal sesi kapalı (açmak için tıkla)"}
           >
             <span>{soundActive ? "🔔" : "🔕"}</span>
-            <span className="hidden lg:inline">{soundActive ? "Ses Açık" : "Sessiz"}</span>
+            <span className="hidden xl:inline">{soundActive ? "Ses Açık" : "Sessiz"}</span>
           </button>
 
           {/* Canlı Bağlantı Rozeti */}
@@ -174,6 +247,7 @@ export default function TopNav() {
       </div>
       </header>
       <FavoriteTickerBand favorites={favorites} />
+      <CommandPalette isOpen={commandOpen} onClose={() => setCommandOpen(false)} />
     </>
   );
 }

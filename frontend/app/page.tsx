@@ -15,8 +15,10 @@ import OpportunityCard from "./components/OpportunityCard";
 import ActiveTradesTable from "./components/ActiveTradesTable";
 import OrderPanel from "./components/OrderPanel";
 import LiveNotificationToast from "./components/LiveNotificationToast";
+import MarketChart from "./components/MarketChart";
 
 type HorizonFilter = "all" | "favorites" | "5" | "15";
+type LayoutMode = "cards" | "terminal";
 
 /** İmleç bir metin alanındayken kısayollar devre dışı kalır. */
 function isTypingTarget(target: EventTarget | null) {
@@ -28,6 +30,7 @@ function isTypingTarget(target: EventTarget | null) {
 
 export default function Home() {
   const [horizon, setHorizon] = useState<HorizonFilter>("all");
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>("cards");
   const [selected, setSelected] = useState<string | null>(null);
   const [quickAmount, setQuickAmount] = useState<number | null>(null);
   const [manualRun, setManualRun] = useState<UnifiedScanRun | null>(null);
@@ -38,10 +41,47 @@ export default function Home() {
   const scan = usePoll<UnifiedScanResponse>("/api/unified-scan/latest", 20_000, 30_000);
 
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("filter") === "favorites") {
+    try {
+      const stored = localStorage.getItem("odak_home_view_mode");
+      if (stored === "terminal" || stored === "cards") setLayoutMode(stored);
+    } catch {}
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("filter") === "favorites") {
       setHorizon("favorites");
     }
+    const sym = params.get("symbol");
+    if (sym) {
+      const clean = sym.toUpperCase().replace(/[^A-Z0-9]/g, "");
+      if (clean) setSelected(clean);
+    }
+    if (params.get("scan") === "1") {
+      void handleManualScan();
+    }
+
+    const onSelect = (e: CustomEvent<string>) => {
+      if (e.detail) {
+        const clean = String(e.detail).toUpperCase().replace(/[^A-Z0-9]/g, "");
+        if (clean) setSelected(clean);
+      }
+    };
+    const onTrigger = () => {
+      void handleManualScan();
+    };
+
+    window.addEventListener("odak:select-symbol", onSelect as EventListener);
+    window.addEventListener("odak:trigger-scan", onTrigger);
+    return () => {
+      window.removeEventListener("odak:select-symbol", onSelect as EventListener);
+      window.removeEventListener("odak:trigger-scan", onTrigger);
+    };
   }, []);
+
+  const changeLayoutMode = (mode: LayoutMode) => {
+    setLayoutMode(mode);
+    try {
+      localStorage.setItem("odak_home_view_mode", mode);
+    } catch {}
+  };
 
   const latestRun = scan.data?.run ?? null;
   const latestRunAt = Number(latestRun?.completed_at ?? latestRun?.generated_at ?? 0);
@@ -69,20 +109,16 @@ export default function Home() {
     return views.filter((item) => item.horizonMinutes === Number(horizon));
   }, [views, horizon, isFavorite]);
 
+  const activeSymbol = selected || (filtered.length > 0 ? filtered[0].symbol : "BTCUSDT");
+
   const selectedView = useMemo(
-    () => filtered.find((item) => item.symbol === selected) ?? filtered[0] ?? null,
-    [filtered, selected],
+    () => filtered.find((item) => item.symbol === activeSymbol) ?? null,
+    [filtered, activeSymbol],
   );
 
   const generatedAt = Number(run?.completed_at ?? run?.generated_at ?? 0);
   const stale = generatedAt > 0 && Date.now() / 1000 - generatedAt > 120;
   const loadingFirst = scan.loading && !run;
-
-  useEffect(() => {
-    if (selected && !filtered.some((item) => item.symbol === selected)) {
-      setSelected(null);
-    }
-  }, [filtered, selected]);
 
   // KLAVYE KISAYOLLARI (TradingView tarzı): j/k aday gezinme, Enter panele aktarım,
   // f favori, m manuel tarama, ? yardım. Metin alanlarında devre dışıdır.
@@ -109,11 +145,15 @@ export default function Home() {
         document.getElementById("islem-paneli")?.scrollIntoView({ behavior: "smooth", block: "start" });
       }
       else if (key === "f" && selectedView) { event.preventDefault(); toggleFavorite(selectedView.symbol); }
+      else if (key === "p" || key === "P") {
+        event.preventDefault();
+        changeLayoutMode(layoutMode === "terminal" ? "cards" : "terminal");
+      }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtered, selectedKey, selectedView, scanBusy]);
+  }, [filtered, selectedKey, selectedView, scanBusy, layoutMode]);
 
   async function handleManualScan() {
     if (scanBusy) return;
@@ -173,7 +213,31 @@ export default function Home() {
           </span>
           {scan.error && run && <span className="text-amber-700">Bağlantı koptu · son görüntü gösteriliyor</span>}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          {/* Görünüm Değiştirici */}
+          <div className="flex rounded-lg border border-line bg-canvas/70 p-0.5">
+            <button
+              type="button"
+              onClick={() => changeLayoutMode("cards")}
+              className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
+                layoutMode === "cards" ? "bg-white text-ink-900 shadow-xs" : "text-ink-500 hover:text-ink-800"
+              }`}
+              title="Klasik kart görünümü"
+            >
+              ⊞ Kartlar
+            </button>
+            <button
+              type="button"
+              onClick={() => changeLayoutMode("terminal")}
+              className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
+                layoutMode === "terminal" ? "bg-accent text-white shadow-xs" : "text-ink-500 hover:text-ink-800"
+              }`}
+              title="Profesyonel grafik & işlem terminali"
+            >
+              ⚡ Pro Terminal
+            </button>
+          </div>
+
           {scanMessage && <span className="font-medium text-accent" role="status">{scanMessage}</span>}
           <button type="button" onClick={() => setShowShortcuts((open) => !open)} title="Klavye kısayolları (?)" aria-label="Klavye kısayolları" className="hidden rounded-lg border border-line px-2 py-1.5 text-xs text-ink-500 hover:border-accent hover:text-accent sm:block">⌘ ?</button>
           <button
@@ -189,71 +253,150 @@ export default function Home() {
         </div>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
-        <Card className="p-4 sm:p-5">
-          <SectionHeader
-            eyebrow="Adaylar · Kaynak uzlaşısı · Sembol bazında tekil kayıtlar"
-            title={
-              <span className="inline-flex items-center gap-2">
-                Yükseliş Adayları <Badge tone="gain">{filtered.length} ADAY</Badge>
-              </span>
-            }
-            actions={
-              <Tabs
-                items={[
-                  { id: "all", label: "Tümü" },
-                  { id: "favorites", label: `★ Favoriler (${favorites.length})` },
-                  { id: "5", label: "5 dk" },
-                  { id: "15", label: "15 dk" },
-                ]}
-                active={horizon}
-                onChange={(id) => setHorizon(id as HorizonFilter)}
+      {layoutMode === "terminal" ? (
+        <div className="space-y-5">
+          {/* Pro Terminal: Canlı Grafik + İşlem Paneli yan yana */}
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
+            <div className="min-w-0">
+              <MarketChart
+                panelId="terminal-main"
+                initialSymbol={activeSymbol}
+                onSymbolChange={(sym) => setSelected(sym)}
               />
-            }
-          />
+            </div>
+            <div id="islem-paneli" className="scroll-mt-24 lg:sticky lg:top-20 lg:self-start">
+              <OrderPanel
+                initialSymbol={activeSymbol}
+                initialAmount={quickAmount}
+                initialCandidate={selectedView}
+                onTraded={() => scan.reload()}
+              />
+              <p className="mt-2 text-center text-[10px] text-ink-500">Kısayollar: j/k gezin · Enter panele aktar · f favori · m tara · p görünüm · ? yardım</p>
+            </div>
+          </div>
 
-          {loadingFirst ? (
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {[0, 1, 2, 3, 4, 5].map((item) => <div key={item} className="h-56 animate-pulse rounded-xl bg-canvas" />)}
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="mt-6 rounded-xl border border-dashed border-line py-12 text-center text-sm text-ink-400">
-              {horizon === "favorites" ? "Favori sembollerinizde henüz aday yok." : "Henüz aday bulunmuyor. Piyasa Tara ile salt-veri taraması başlatabilirsiniz."}
-            </div>
-          ) : (
-            <div className="mt-4 grid gap-3.5 sm:grid-cols-2 xl:grid-cols-3">
-              {filtered.slice(0, 12).map((item, index) => (
-                <OpportunityCard
-                  key={item.symbol}
-                  rank={index + 1}
-                  item={item}
-                  selected={selectedView?.symbol === item.symbol}
-                  onSelect={() => {
-                    setSelected(item.symbol);
-                    setQuickAmount(null);
-                  }}
-                  onQuickBuy={(symbol, amount) => {
-                    setSelected(symbol);
-                    // Tutar verilmediyse panelin kendi tutarı korunur (null = override yok).
-                    setQuickAmount(amount ?? null);
-                  }}
+          {/* Adaylar Şeridi */}
+          <Card className="p-4 sm:p-5">
+            <SectionHeader
+              eyebrow="Taranan Adaylar · Seçilen Sembol Grafiğe ve Panele Yansır"
+              title={
+                <span className="inline-flex items-center gap-2">
+                  Yükseliş Adayları <Badge tone="gain">{filtered.length} ADAY</Badge>
+                </span>
+              }
+              actions={
+                <Tabs
+                  items={[
+                    { id: "all", label: "Tümü" },
+                    { id: "favorites", label: `★ Favoriler (${favorites.length})` },
+                    { id: "5", label: "5 dk" },
+                    { id: "15", label: "15 dk" },
+                  ]}
+                  active={horizon}
+                  onChange={(id) => setHorizon(id as HorizonFilter)}
                 />
-              ))}
-            </div>
-          )}
-          {run && <p className="mt-3 text-[10px] text-ink-400">Sürüm {run.algorithm_version ?? "combined-v1"} · her sembol yalnızca en güçlü ufkuyla bir kez listelenir.</p>}
-        </Card>
+              }
+            />
 
-        <div id="islem-paneli" className="scroll-mt-24 lg:sticky lg:top-20 lg:self-start">
-          <OrderPanel
-            initialSymbol={selectedView?.symbol ?? null}
-            initialAmount={quickAmount}
-            initialCandidate={selectedView}
-            onTraded={() => scan.reload()}
-          />
-          <p className="mt-2 text-center text-[10px] text-ink-500">Adayı panele taşımak emir göndermez; gerçek emir için ayrı onay gerekir. Kısayollar: j/k gezin · Enter panele aktar · f favori · m tara · ? yardım</p>
+            {loadingFirst ? (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {[0, 1, 2, 3].map((item) => <div key={item} className="h-44 animate-pulse rounded-xl bg-canvas" />)}
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="mt-6 rounded-xl border border-dashed border-line py-8 text-center text-sm text-ink-400">
+                {horizon === "favorites" ? "Favori sembollerinizde henüz aday yok." : "Henüz aday bulunmuyor. Piyasa Tara ile salt-veri taraması başlatabilirsiniz."}
+              </div>
+            ) : (
+              <div className="mt-4 grid gap-3.5 sm:grid-cols-2 xl:grid-cols-4">
+                {filtered.slice(0, 12).map((item, index) => (
+                  <OpportunityCard
+                    key={item.symbol}
+                    rank={index + 1}
+                    item={item}
+                    selected={activeSymbol === item.symbol}
+                    onSelect={() => {
+                      setSelected(item.symbol);
+                      setQuickAmount(null);
+                    }}
+                    onQuickBuy={(symbol, amount) => {
+                      setSelected(symbol);
+                      setQuickAmount(amount ?? null);
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+            {run && <p className="mt-3 text-[10px] text-ink-400">Sürüm {run.algorithm_version ?? "combined-v1"} · her sembol yalnızca en güçlü ufkuyla bir kez listelenir.</p>}
+          </Card>
         </div>
-      </div>
+      ) : (
+        /* Klasik Kart Görünümü */
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
+          <Card className="p-4 sm:p-5">
+            <SectionHeader
+              eyebrow="Adaylar · Kaynak uzlaşısı · Sembol bazında tekil kayıtlar"
+              title={
+                <span className="inline-flex items-center gap-2">
+                  Yükseliş Adayları <Badge tone="gain">{filtered.length} ADAY</Badge>
+                </span>
+              }
+              actions={
+                <Tabs
+                  items={[
+                    { id: "all", label: "Tümü" },
+                    { id: "favorites", label: `★ Favoriler (${favorites.length})` },
+                    { id: "5", label: "5 dk" },
+                    { id: "15", label: "15 dk" },
+                  ]}
+                  active={horizon}
+                  onChange={(id) => setHorizon(id as HorizonFilter)}
+                />
+              }
+            />
+
+            {loadingFirst ? (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {[0, 1, 2, 3, 4, 5].map((item) => <div key={item} className="h-56 animate-pulse rounded-xl bg-canvas" />)}
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="mt-6 rounded-xl border border-dashed border-line py-12 text-center text-sm text-ink-400">
+                {horizon === "favorites" ? "Favori sembollerinizde henüz aday yok." : "Henüz aday bulunmuyor. Piyasa Tara ile salt-veri taraması başlatabilirsiniz."}
+              </div>
+            ) : (
+              <div className="mt-4 grid gap-3.5 sm:grid-cols-2 xl:grid-cols-3">
+                {filtered.slice(0, 12).map((item, index) => (
+                  <OpportunityCard
+                    key={item.symbol}
+                    rank={index + 1}
+                    item={item}
+                    selected={activeSymbol === item.symbol}
+                    onSelect={() => {
+                      setSelected(item.symbol);
+                      setQuickAmount(null);
+                    }}
+                    onQuickBuy={(symbol, amount) => {
+                      setSelected(symbol);
+                      // Tutar verilmediyse panelin kendi tutarı korunur (null = override yok).
+                      setQuickAmount(amount ?? null);
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+            {run && <p className="mt-3 text-[10px] text-ink-400">Sürüm {run.algorithm_version ?? "combined-v1"} · her sembol yalnızca en güçlü ufkuyla bir kez listelenir.</p>}
+          </Card>
+
+          <div id="islem-paneli" className="scroll-mt-24 lg:sticky lg:top-20 lg:self-start">
+            <OrderPanel
+              initialSymbol={activeSymbol}
+              initialAmount={quickAmount}
+              initialCandidate={selectedView}
+              onTraded={() => scan.reload()}
+            />
+            <p className="mt-2 text-center text-[10px] text-ink-500">Adayı panele taşımak emir göndermez; gerçek emir için ayrı onay gerekir. Kısayollar: j/k gezin · Enter panele aktar · f favori · m tara · p görünüm · ? yardım</p>
+          </div>
+        </div>
+      )}
 
       <Card className="p-5">
         <div id="aktif-islemler" className="scroll-mt-24">
@@ -263,7 +406,16 @@ export default function Home() {
             description="Cüzdandaki açık coin bakiyeleri, anlık kâr/zarar ve maliyet durumu."
             actions={<Link href="/gecmis-islemler" className="rounded-lg border border-line px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent-soft">İşlem Geçmişi →</Link>}
           />
-          <div className="mt-4"><ActiveTradesTable limit={10} /></div>
+          <div className="mt-4">
+            <ActiveTradesTable
+              limit={10}
+              onSelectSymbol={(symbol) => {
+                setSelected(symbol);
+                setQuickAmount(1000);
+                document.getElementById("islem-paneli")?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+            />
+          </div>
         </div>
       </Card>
 
@@ -275,7 +427,17 @@ export default function Home() {
               <button type="button" onClick={() => setShowShortcuts(false)} className="rounded-md px-2 py-1 text-ink-500 hover:bg-slate-100" aria-label="Yardım penceresini kapat">✕</button>
             </div>
             <dl className="mt-3 space-y-2 text-sm">
-              {[["j / ↓", "Sonraki aday"], ["k / ↑", "Önceki aday"], ["Enter", "Seçili adayı işlem paneline aktar (1.000 ₺)"], ["f", "Seçili sembolü favoriye ekle/çıkar"], ["m", "Salt-veri piyasa taraması başlat"], ["?", "Bu pencereyi aç/kapat"], ["Esc", "Pencereleri kapat"]].map(([key, label]) => (
+              {[
+                ["Ctrl+K / ⌘K", "Komut ve Sembol Arama Paleti"],
+                ["p", "Pro Terminal / Kart görünümü değiştir"],
+                ["j / ↓", "Sonraki aday"],
+                ["k / ↑", "Önceki aday"],
+                ["Enter", "Seçili adayı işlem paneline aktar (1.000 ₺)"],
+                ["f", "Seçili sembolü favoriye ekle/çıkar"],
+                ["m", "Salt-veri piyasa taraması başlat"],
+                ["?", "Bu pencereyi aç/kapat"],
+                ["Esc", "Pencereleri kapat"],
+              ].map(([key, label]) => (
                 <div key={key} className="flex items-center justify-between gap-4">
                   <dt><kbd className="rounded-md border border-line bg-canvas px-2 py-0.5 font-mono text-xs font-semibold text-ink-800">{key}</kbd></dt>
                   <dd className="text-right text-ink-600">{label}</dd>

@@ -7,7 +7,6 @@ from app.config import config
 from app.technical_analysis import calculate_snapshot, _adx, _stochastic, _macd, _mfi, _ema, _rsi, _crsi, _cmo, _atr
 from app.binance_tr_public import orderbook
 from app import database
-from app import agent_learning
 from app import calibration as calibration_service
 from app.circuit_breaker import breaker as strategy_breaker
 
@@ -828,10 +827,6 @@ class ScalpAnalyzer:
         sig = {"symbol": symbol, "action": "CLOSE_LONG", "reason": reason, "price": fill_price,
                "strategy": pos.get("strategy", "CHAT_PREDICTION"), "trade_id": pos.get("trade_id"), "timestamp": time.time()}
         await database.commit_close_position(symbol, symbol.replace("TRY", ""), try_balance + sell_value - commission, trade, sig)
-        try:
-            await agent_learning.record_paper_trade_outcome(trade)
-        except Exception as learning_error:
-            print(f"[Learning] paper outcome kaydedilemedi: {learning_error}")
         closed_strategy = pos.get("strategy")
         del self.positions[symbol]
         if closed_strategy == "LLM_PAPER":

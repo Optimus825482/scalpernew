@@ -175,6 +175,16 @@ export default function OrderPanel({
     else setSlPrice(value.toFixed(priceDigits(currentPrice)));
   }
 
+  function applyRiskReward(ratio: number) {
+    const entry = kind === "LIMIT" && Number(limitPrice) > 0 ? Number(limitPrice) : currentPrice;
+    if (!entry) return;
+    const sl = Number(slPrice || 0);
+    if (sl <= 0 || sl >= entry) return;
+    const riskDiff = entry - sl;
+    const targetTp = entry + riskDiff * ratio;
+    setTpPrice(targetTp.toFixed(priceDigits(entry)));
+  }
+
   function priceDigits(price: number) {
     if (price >= 1000) return 2;
     if (price >= 1) return 4;
@@ -355,7 +365,16 @@ export default function OrderPanel({
           </div>
         </div>
 
-        <OrderBook symbol={activeSymbol} />
+        <OrderBook
+          symbol={activeSymbol}
+          onSelectPrice={(price) => {
+            setKind("LIMIT");
+            const precision = priceDigits(price);
+            setLimitPrice(price.toFixed(precision));
+            setMessage({ tone: "gain", text: `Limit fiyatı ${formatPrice(price)} olarak aktarıldı.` });
+            setTimeout(() => setMessage(null), 3500);
+          }}
+        />
 
         <div className="mt-3 grid grid-cols-2 gap-2">
           <button type="button" onClick={() => { setSide("BUY"); setAmount(""); }} className={`rounded-lg py-2 text-sm font-semibold ${side === "BUY" ? "bg-gain text-white" : "border border-line text-ink-500"}`}>AL</button>
@@ -380,8 +399,8 @@ export default function OrderPanel({
           <label className="mt-3 block"><span className="odak-kicker">Limit fiyatı ({quoteAsset})</span><input value={stopLimitPrice} onChange={(e) => setStopLimitPrice(e.target.value.replace(/[^\d.]/g, ""))} inputMode="decimal" placeholder="0" className="mt-1 w-full rounded-lg border border-line bg-white px-3 py-2 font-mono text-sm text-ink-900 outline-none focus:border-accent" /></label>
         </>}
         {side === "BUY" && kind === "MARKET" && quoteAsset === "TRY" && (
-          <div className="mt-2 grid grid-cols-4 gap-1">
-            {[500, 1000, 2500, 5000].map((val) => (
+          <div className="mt-2 grid grid-cols-5 gap-1">
+            {[500, 1000, 2500, 5000, 10000].map((val) => (
               <button
                 key={val}
                 type="button"
@@ -392,7 +411,7 @@ export default function OrderPanel({
                     : "border-line bg-canvas/70 text-ink-600 hover:border-accent"
                 }`}
               >
-                ₺{val.toLocaleString("tr-TR")}
+                ₺{val >= 1000 ? `${val / 1000}K` : val}
               </button>
             ))}
           </div>
@@ -461,6 +480,43 @@ export default function OrderPanel({
                   </button>
                 )}
               </div>
+
+              {sltpMode === "OCO" && (
+                (() => {
+                  const entry = kind === "LIMIT" && Number(limitPrice) > 0 ? Number(limitPrice) : currentPrice;
+                  if (!entry || Number(slPrice) <= 0 || Number(slPrice) >= entry) return null;
+                  return (
+                    <div className="mt-2 rounded-lg border border-line bg-canvas/60 p-2 text-[11px]">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-ink-700">Hedef R/R ({kind === "LIMIT" ? "Limit" : "Piyasa"}: {formatPrice(entry)}):</span>
+                        <div className="flex items-center gap-1">
+                          {[1.5, 2, 3].map((ratio) => (
+                            <button
+                              key={ratio}
+                              type="button"
+                              onClick={() => applyRiskReward(ratio)}
+                              className="rounded border border-line bg-white px-2 py-0.5 font-mono text-[10px] font-semibold text-accent hover:bg-accent-soft"
+                              title={`Risk:Zarar 1:${ratio} hedefi belirle`}
+                            >
+                              1:{ratio}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {Number(tpPrice) > entry && (
+                        <div className="mt-1 flex items-center justify-between border-t border-line/60 pt-1 text-[10px]">
+                          <span className="text-gain font-medium">Kâr: +%{(((Number(tpPrice) - entry) / entry) * 100).toFixed(1)}</span>
+                          <span className="text-loss font-medium">Zarar: -%{(((entry - Number(slPrice)) / entry) * 100).toFixed(1)}</span>
+                          <span className="font-mono font-bold text-ink-800">
+                            R/R: 1 : {((Number(tpPrice) - entry) / (entry - Number(slPrice))).toFixed(1)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()
+              )}
+
               <div className="mt-2 grid grid-cols-2 gap-2">
                 <label className="block"><span className="odak-kicker">SL limit (ops.)</span><input value={slLimitPrice} onChange={(e) => setSlLimitPrice(e.target.value.replace(/[^\d.]/g, ""))} inputMode="decimal" placeholder="—" className="mt-1 w-full rounded-lg border border-line bg-white px-2 py-1.5 font-mono text-xs text-ink-900 outline-none focus:border-accent" /></label>
                 <label className="block"><span className="odak-kicker">Miktar (boş = tümü)</span><input value={sltpQty} onChange={(e) => setSltpQty(e.target.value.replace(/[^\d.]/g, ""))} inputMode="decimal" placeholder={String(assetFree)} className="mt-1 w-full rounded-lg border border-line bg-white px-2 py-1.5 font-mono text-xs text-ink-900 outline-none focus:border-accent" /></label>

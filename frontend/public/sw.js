@@ -6,11 +6,13 @@
  */
 "use strict";
 
-var VERSION = "v3";
+var VERSION = "v4";
 var SHELL_CACHE = "scalper-shell-" + VERSION;
 var ASSET_CACHE = "scalper-assets-" + VERSION;
 var RUNTIME_CACHE = "scalper-runtime-" + VERSION;
 var NAV_TIMEOUT_MS = 4000;
+var NAV_RETRIES = 2;
+var NAV_RETRY_MS = 700;
 
 var ASSET_PATTERNS = [
   /^\/_next\/static\//,
@@ -196,24 +198,36 @@ function networkFirstNavigation(req) {
       }
     }, NAV_TIMEOUT_MS);
 
-    fetch(req).then(function (res) {
-      if (!done) {
-        done = true;
-        clearTimeout(timer);
-        if (res && res.ok) {
-          caches.open(RUNTIME_CACHE).then(function (cache) {
-            cache.put(req, res.clone()).catch(function () {});
-          }).catch(function () {});
+    // 2026-10-14: kısa servis kesintilerinde (gateway/frontend konteyneri
+    // birkaç saniyeliğine düşüyor → Traefik 503 "no available server")
+    // kullanıcı ham hata sayfası görüyordu. 5xx yanıtlarında kısa aralıklarla
+    // 2 kez daha denenir; yine olmazsa önbellek/çevrimdışı fallback'e düşülür.
+    var RETRY_STATUS = 500;
+    var attempt = function (triesLeft) {
+      fetch(req).then(function (res) {
+        if (!done && res && res.status >= RETRY_STATUS && triesLeft > 0) {
+          setTimeout(function () { if (!done) attempt(triesLeft - 1); }, NAV_RETRY_MS);
+          return;
         }
-        resolve(res);
-      }
-    }).catch(function () {
-      if (!done) {
-        done = true;
-        clearTimeout(timer);
-        resolve(offlineFallback(req));
-      }
-    });
+        if (!done) {
+          done = true;
+          clearTimeout(timer);
+          if (res && res.ok) {
+            caches.open(RUNTIME_CACHE).then(function (cache) {
+              cache.put(req, res.clone()).catch(function () {});
+            }).catch(function () {});
+          }
+          resolve(res && res.ok ? res : offlineFallback(req));
+        }
+      }).catch(function () {
+        if (!done) {
+          done = true;
+          clearTimeout(timer);
+          resolve(offlineFallback(req));
+        }
+      });
+    };
+    attempt(NAV_RETRIES);
   });
 }
 

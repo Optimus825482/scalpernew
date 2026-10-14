@@ -5369,16 +5369,22 @@ async def report_notifications(
     limit: int = 200,
     day: str = None,
     min_score: float = None,
+    max_score: float = None,
     confluence_min: int = None,
     master_surge_only: bool = False,
     channel: str = "all",
     source: str = "all",
     include_archived: bool = False,
     history_only: bool = False,
+    from_ts: float = None,
+    to_ts: float = None,
+    status: str = None,
 ):
     """Radar bildirim raporu - gercek kapanis M1 olcmeye dayali basari.
     day: YYYY-MM-DD formatinda gun filtresi (opsiyonel).
-    min_score: Skor eşiği filtresi (opsiyonel; belirtilmezse admin min_score kullanılır).
+    min_score / max_score: Skor aralığı filtresi.
+    from_ts / to_ts: Epoch saniye cinsinden açık zaman aralığı (day ile birlikte verilmemeli).
+    status: 'BEKLIYOR', 'BASARILI', 'BASARISIZ' sonuç filtresi.
     confluence_min / master_surge_only: Çoklu teyit filtresi.
     channel: 'all', 'push' (sent_via_push=True), 'panel' (sent_via_push=False).
     source: 'all', 'velocity', 'jump', 'early', 'rising'.
@@ -5403,11 +5409,21 @@ async def report_notifications(
     # Tek eşik ilkesi: belirtilmediyse admin etkin eşiği kullanılır.
     threshold = float(min_score) if min_score is not None else _effective_min_score(settings)
     rows = await database.get_monitoring_velocity_matches(
-        limit=limit, day=effective_day, ignore_reports_baseline=include_archived)
+        limit=limit,
+        day=effective_day,
+        ignore_reports_baseline=include_archived,
+        from_ts=from_ts,
+        to_ts=to_ts,
+    )
     # Eşik filtresi panel (0-100) skoru üzerinden; eski ham kayıtlar tek kez
     # normalize edilir (bkz. _stored_panel_score).
     rows = [r for r in rows
             if _stored_panel_score(r) >= threshold]
+    if max_score is not None:
+        rows = [r for r in rows if _stored_panel_score(r) <= float(max_score)]
+    if status:
+        status_norm = str(status).strip().upper()
+        rows = [r for r in rows if str(r.get("status") or "").upper() == status_norm]
     now = time.time()
 
     def _parse_sources(raw) -> list[str]:

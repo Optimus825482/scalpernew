@@ -20,8 +20,11 @@ const nextConfig = {
   // Değer build-time'da gömülür; yerel geliştirmede kök yol varsayılanı korunur.
   basePath: process.env.NEXT_BASE_PATH || "",
   async rewrites() {
-    // `/api/*` → backend. `:path*` yakalama; sorgu dizesi korunur.
-    return [{ source: "/api/:path*", destination: `${BACKEND_ORIGIN}/api/:path*` }];
+    // `/api/*` ve `/health` → backend. `:path*` yakalama; sorgu dizesi korunur.
+    return [
+      { source: "/api/:path*", destination: `${BACKEND_ORIGIN}/api/:path*` },
+      { source: "/health", destination: `${BACKEND_ORIGIN}/health` },
+    ];
   },
   headers: async () => [
     { source: "/sw.js", headers: [{ key: "Cache-Control", value: "no-store" }] },

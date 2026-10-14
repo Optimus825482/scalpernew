@@ -45,7 +45,6 @@ from app.binance_tr_public import klines as fetch_klines, historical_klines, tra
 from app import binance_tr_public
 from app.technical_analysis import calculate_snapshot, _atr, _bollinger, _cci, _ema, _mfi, _sma
 from app.forecast_learning import normalize_direction, evaluate_forecast, derive_lessons
-from app import ml_forecast
 from app import chat_prediction_learning
 from app import chat_prediction_replay
 from app import llm_analysis
@@ -839,17 +838,6 @@ def _repair_log(level, message):
     _trade_repair["logs"].append({"time": time.time(), "level": level, "message": message})
     _trade_repair["logs"] = _trade_repair["logs"][-100:]
 
-async def learning_promotion_loop():
-    """Promote only evidence-backed instincts; never changes system prompts directly."""
-    while True:
-        try:
-            if _pg_pool:
-                result = await promote_validated_instincts(_pg_pool, dry_run=False)
-                if result.get("promoted"):
-                    print(f"[Learning] promoted instincts: {result['promoted']}")
-        except Exception as exc:
-            print(f"[Learning] promotion loop: {exc}")
-        await asyncio.sleep(15 * 60)
 
 async def retention_loop():
     """Periodic sweep of high-volume observability tables (paper records kept)."""
@@ -869,44 +857,6 @@ async def retention_loop():
         except Exception as exc:
             print(f"[Retention] sweep hatası: {exc}")
         await asyncio.sleep(6 * 3600)
-
-_ml_train_lock = asyncio.Lock()
-
-
-async def run_ml_training(trigger: str = "scheduled"):
-    """ML modelini yeniden eğitir: candle + journal örnekleri -> artifact.
-
-    Journal satırları (doğrulanmış canlı tahmin sonuçları) ağırlıklı örnekle
-    eğitime girer -> model kendi hatalarından/başarılarından pekişir.
-    """
-    async with _ml_train_lock:
-        cutoff_ms = int((time.time() - config.ML_TRAIN_LOOKBACK_DAYS * 86400) * 1000)
-        candles = await database.get_ml_training_candles(
-            cutoff_ms, max_bars_per_symbol=config.ML_MAX_BARS_PER_SYMBOL)
-        journal = await database.get_llm_forecasts(status="evaluated", limit=5000)
-        # ML-07: önceki artifact'ın sembol kodları devralınır (cache'li
-        # `load_model()` çağrısı; diskte yenilenen model görülür).
-        previous_codes = (ml_forecast.load_model() or {}).get("symbol_codes")
-        meta = await asyncio.to_thread(ml_forecast.train, candles, journal, previous_codes)
-        await database.save_ml_model_artifact(meta)
-        print(f"[ML] eğitim ({trigger}): {meta['sample_count']} örnek, "
-              f"{meta['symbol_count']} sembol, {meta['journal_sample_count']} journal örneği", flush=True)
-        return meta
-
-
-async def ml_training_loop():
-    """Faz 1: periyodik ML eğitim döngüsü (startup + ML_TRAIN_INTERVAL_HOURS)."""
-    await asyncio.sleep(300)  # startup patlaması bitsin
-    try:
-        await run_ml_training("startup")
-    except Exception as exc:
-        print(f"[ML] startup eğitimi atlandı: {exc}", flush=True)
-    while True:
-        await asyncio.sleep(config.ML_TRAIN_INTERVAL_HOURS * 3600)
-        try:
-            await run_ml_training("scheduled")
-        except Exception as exc:
-            print(f"[ML] eğitim hatası: {exc}", flush=True)
 
 
 async def calibration_refresh_loop():
@@ -1140,11 +1090,7 @@ async def startup_services():
     await asyncio.sleep(_yield)
     _start_background(llm_position_manager_loop, "llm-position-manager")
     await asyncio.sleep(_yield)
-    _start_background(learning_promotion_loop, "learning-promotion")
-    await asyncio.sleep(_yield)
     _start_background(retention_loop, "retention")
-    await asyncio.sleep(_yield)
-    _start_background(ml_training_loop, "ml_training")
     await asyncio.sleep(_yield)
     _start_background(calibration_refresh_loop, "calibration-refresh")
     await asyncio.sleep(_yield)
@@ -4537,48 +4483,6 @@ async def add_llm_provider(request: Request, payload: dict):
         return {"ok": True, "provider_id": provider_id}
     except RuntimeError as exc: raise HTTPException(status_code=503, detail=str(exc))
     except Exception as exc: raise HTTPException(status_code=500, detail=str(exc))
-
-@app.get("/api/ml/status")
-async def ml_status():
-    """Son ML artifact metadata + metrics (Faz 1 izleme)."""
-    latest = await database.get_latest_ml_model_artifact()
-    if not latest:
-        return {"status": "not_trained", "interval_hours": config.ML_TRAIN_INTERVAL_HOURS}
-    return {"status": latest.get("status"), "artifact": latest,
-            "interval_hours": config.ML_TRAIN_INTERVAL_HOURS,
-            "models_dir": config.ML_MODELS_DIR}
-
-
-@app.post("/api/ml/train")
-async def ml_train_now(request: Request = None):
-    """Manuel eğitim tetikleme (ayarlar butonu / Faz 2 öncesi doğrulama).
-
-    G-18: CPU/DB yoğun uç → admin kapısı + token-bucket hız sınırı.
-    """
-    _require_admin(request)
-    if not rate_limit("ml-train", rate_per_sec=1 / 60.0, burst=2):
-        raise HTTPException(status_code=429, detail="ML eğitimi çok sık tetiklendi; lütfen bekleyin")
-    try:
-        meta = await run_ml_training("manual")
-        return {"ok": True, **meta}
-    except Exception as exc:
-        logger.error("ML eğitimi başarısız: %s", exc, exc_info=True)
-        raise HTTPException(status_code=500, detail="ML eğitimi başarısız")
-
-
-@app.get("/api/ml/predict")
-async def ml_predict(symbol: str, horizon: int = 5):
-    """Tek nokta ML tahmini (Faz 2 gölge mod doğrulaması için)."""
-    # Boş özellik sözlüğü modeli NaN'larla besler ve güvenilmez hedef üretir;
-    # grafik tahminiyle aynı canlı özellik toplayıcıyı kullan (tek yol).
-    from app.routers.chart_forecast import collect_forecast_features
-    features = await collect_forecast_features(symbol)
-    if not features:
-        return {"symbol": symbol.upper(), "horizon": horizon, "available": False,
-                "prediction": None, "reason": "güncel veri yok"}
-    target = ml_forecast.predict_target(symbol, features, horizon)
-    return {"symbol": symbol.upper(), "horizon": horizon, "available": target is not None,
-            "prediction": target}
 
 
 @app.post("/api/llm/models")

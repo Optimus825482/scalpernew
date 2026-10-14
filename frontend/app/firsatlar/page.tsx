@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { apiRequest } from "../lib/api";
 import { usePoll } from "../lib/hooks";
 import { formatPct, fmtDateTime, formatPrice } from "../lib/format";
@@ -8,7 +9,7 @@ import { baseAsset, toOpportunityView } from "../lib/opportunity";
 import { sourceLabel } from "../lib/sources";
 import { useWatchlist } from "../lib/watchlist";
 import { sound } from "../lib/sound";
-import type { ManualUnifiedScanResponse, NotificationsResponse, UnifiedScanHistoryResponse, UnifiedScanRun } from "../lib/types";
+import type { ManualUnifiedScanResponse, NotificationsResponse, ScanNotification, UnifiedScanHistoryResponse, UnifiedScanRun } from "../lib/types";
 import { Badge, Card, EmptyState, SectionHeader, Skeleton, Tabs } from "../components/ui";
 import RadarSweep from "../components/RadarSweep";
 import { downloadCsv, toCsv } from "../lib/csv";
@@ -208,7 +209,8 @@ function LiveFeed({
               <th className="pb-2 pr-3 text-right font-medium">Değişim</th>
               <th className="pb-2 pr-3 text-right font-medium">Hedef</th>
               <th className="pb-2 pr-3 text-right font-medium">Skor</th>
-              <th className="pb-2 text-right font-medium">Ufuk</th>
+              <th className="pb-2 pr-3 text-right font-medium">Ufuk</th>
+              <th className="pb-2 text-right font-medium">Aksiyon</th>
             </tr>
           </thead>
           <tbody>
@@ -227,7 +229,13 @@ function LiveFeed({
                     </button>
                   </td>
                   <td className="py-2.5 pr-3">
-                    <span className="font-mono font-bold text-ink-900">{view.base}</span>
+                    <Link
+                      href={`/grafik?symbol=${encodeURIComponent(view.symbol)}`}
+                      className="font-mono font-bold text-ink-900 hover:text-accent transition-colors"
+                      title={`${view.symbol} grafiğini aç`}
+                    >
+                      {view.base}
+                    </Link>
                     <span className="text-xs text-ink-400"> / TRY</span>
                   </td>
                   <td className="py-2.5 pr-3">
@@ -258,8 +266,24 @@ function LiveFeed({
                   <td className="py-2.5 pr-3 text-right font-mono font-semibold text-accent">
                     {view.strength != null ? `%${Math.round(view.strength)}` : "—"}
                   </td>
-                  <td className="py-2.5 text-right font-mono text-ink-500">
+                  <td className="py-2.5 pr-3 text-right font-mono text-ink-500">
                     {view.horizonMinutes != null ? `${view.horizonMinutes} dk` : "—"}
+                  </td>
+                  <td className="py-2.5 text-right">
+                    <div className="flex items-center justify-end gap-1.5">
+                      <Link
+                        href={`/grafik?symbol=${encodeURIComponent(view.symbol)}`}
+                        className="rounded border border-line bg-white px-2 py-1 text-[11px] font-semibold text-accent hover:bg-accent-soft"
+                      >
+                        Grafik
+                      </Link>
+                      <Link
+                        href={`/?symbol=${encodeURIComponent(view.symbol)}`}
+                        className="rounded bg-accent/10 px-2 py-1 text-[11px] font-semibold text-accent hover:bg-accent hover:text-white transition-colors"
+                      >
+                        İşlem
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               );
@@ -287,8 +311,32 @@ function HistorySection({
   scanHistoryLoading: boolean;
 }) {
   const [page, setPage] = useState(0);
+  // Filtre ve sıralama state'leri
+  const [minScore, setMinScore] = useState("");
+  const [maxScore, setMaxScore] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "BEKLIYOR" | "BASARILI" | "BASARISIZ">("all");
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: "asc" | "desc" }>({ key: "detected_at", direction: "desc" });
+
+  const minScoreNum = minScore.trim() === "" ? null : Number(minScore);
+  const maxScoreNum = maxScore.trim() === "" ? null : Number(maxScore);
+  const startTs = startDate ? new Date(`${startDate}T00:00:00+03:00`).getTime() / 1000 : null;
+  const endTs = endDate ? new Date(`${endDate}T23:59:59+03:00`).getTime() / 1000 : null;
+
+  const queryParams = useMemo(() => {
+    const params = new URLSearchParams();
+    params.set("day", "all");
+    params.set("limit", "400");
+    params.set("history_only", "true");
+    if (startTs) params.set("from_ts", String(startTs));
+    if (endTs) params.set("to_ts", String(endTs));
+    if (maxScoreNum != null) params.set("max_score", String(maxScoreNum));
+    return params.toString();
+  }, [startTs, endTs, maxScoreNum]);
+
   const { data, error, loading } = usePoll<NotificationsResponse>(
-    "/api/reports/notifications?day=all&limit=400&history_only=true",
+    `/api/reports/notifications?${queryParams}`,
     60_000
   );
   const engineSummary = usePoll<EngineSummary>("/api/daily-rising/reports/summary?days=14&limit=200", 120_000);
@@ -315,7 +363,40 @@ function HistorySection({
 
   const rawNotifications = data?.notifications || [];
 
-  // BAŞARI KARNESİ HESAPLAMALARI
+  // Filtreleme
+  const filtered = useMemo(() => {
+    return rawNotifications.filter((n) => {
+      const sym = String(n.symbol || "").toUpperCase();
+      const score = n.score != null ? Number(n.score) : null;
+      const status = String(n.status || "").toUpperCase();
+      if (onlyFavorites && !isFavorite(sym)) return false;
+      if (search.trim() && !sym.includes(search.trim().toUpperCase())) return false;
+      if (minScoreNum != null && minScoreNum > 0 && (score == null || score < minScoreNum)) return false;
+      if (maxScoreNum != null && (score == null || score > maxScoreNum)) return false;
+      if (statusFilter !== "all" && status !== statusFilter) return false;
+      return true;
+    }).sort((a, b) => {
+      const dir = sortConfig.direction === "asc" ? 1 : -1;
+      switch (sortConfig.key) {
+        case "detected_at":
+          return dir * ((a.detected_at ?? 0) - (b.detected_at ?? 0));
+        case "symbol":
+          return dir * String(a.symbol || "").localeCompare(String(b.symbol || ""));
+        case "score":
+          return dir * ((Number(a.score) || 0) - (Number(b.score) || 0));
+        case "price":
+          return dir * ((Number(a.price) || 0) - (Number(b.price) || 0));
+        case "target_pct":
+          return dir * ((Number(a.target_pct) || 0) - (Number(b.target_pct) || 0));
+        case "mfe_pct":
+          return dir * ((Number(a.mfe_pct) || 0) - (Number(b.mfe_pct) || 0));
+        default:
+          return 0;
+      }
+    });
+  }, [rawNotifications, onlyFavorites, search, isFavorite, minScoreNum, maxScoreNum, statusFilter, sortConfig]);
+
+  // BAŞARI KARNESİ HESAPLAMALARI (filtrelenmiş veriye göre)
   const stats = useMemo(() => {
     let total = 0;
     let successful = 0;
@@ -323,12 +404,14 @@ function HistorySection({
     let pending = 0;
     let sumMfe = 0;
     let mfeCount = 0;
+    let sumScoreSuccess = 0;
+    let sumScoreFailed = 0;
 
-    for (const n of rawNotifications) {
+    for (const n of filtered) {
       total += 1;
       const status = String(n.status || "").toUpperCase();
-      if (status.includes("BAŞARILI")) successful += 1;
-      else if (status.includes("BAŞARISIZ")) failed += 1;
+      if (status.includes("BAŞARILI")) { successful += 1; sumScoreSuccess += Number(n.score) || 0; }
+      else if (status.includes("BAŞARISIZ")) { failed += 1; sumScoreFailed += Number(n.score) || 0; }
       else pending += 1;
 
       if (n.mfe_pct != null && Number(n.mfe_pct) > 0) {
@@ -340,19 +423,12 @@ function HistorySection({
     const decided = successful + failed;
     const winRate = decided > 0 ? (successful / decided) * 100 : 0;
     const avgMfe = mfeCount > 0 ? sumMfe / mfeCount : 0;
+    const avgScoreSuccess = successful > 0 ? sumScoreSuccess / successful : 0;
+    const avgScoreFailed = failed > 0 ? sumScoreFailed / failed : 0;
 
-    return { total, successful, failed, pending, winRate, avgMfe };
-  }, [rawNotifications]);
+    return { total, successful, failed, pending, winRate, avgMfe, avgScoreSuccess, avgScoreFailed };
+  }, [filtered]);
 
-  // Filtreleme
-  const filtered = useMemo(() => {
-    return rawNotifications.filter((n) => {
-      const sym = String(n.symbol || "").toUpperCase();
-      if (onlyFavorites && !isFavorite(sym)) return false;
-      if (search.trim() && !sym.includes(search.trim().toUpperCase())) return false;
-      return true;
-    });
-  }, [rawNotifications, onlyFavorites, search, isFavorite]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
@@ -446,7 +522,10 @@ function HistorySection({
 
       {rawNotifications.length === 0 ? <EmptyState title="Başarı kaydı yok" hint="Aday görüntüleri yukarıdaki kalıcı tarama geçmişinde tutuluyor." /> : <>
       {/* SİNYAL BAŞARI KARNESİ */}
-      <div className="grid gap-3 sm:grid-cols-4">
+      <p className="text-xs text-ink-500">
+        Aşağıdaki istatistikler seçili filtre ve arama kriterlerine göre hesaplanır.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-xl border border-line bg-white p-3.5 shadow-xs">
           <p className="odak-kicker">Başarı Oranı (Hit Rate)</p>
           <p className="mt-1 font-mono text-2xl font-bold text-gain">
@@ -476,28 +555,97 @@ function HistorySection({
         </div>
 
         <div className="rounded-xl border border-line bg-white p-3.5 shadow-xs">
-          <p className="odak-kicker">Sinyal Doğrulama</p>
-          <p className="mt-1 font-mono text-2xl font-bold text-ink-900">
-            Füzyon Onaylı
+          <p className="odak-kicker">Ortalama Skor</p>
+          <p className="mt-1 font-mono text-xl font-bold text-gain">
+            {stats.avgScoreSuccess > 0 ? stats.avgScoreSuccess.toFixed(1) : "—"}
           </p>
-          <p className="mt-0.5 text-xs text-ink-400">Çoklu sistem cross-check</p>
+          <p className="mt-0.5 text-xs text-ink-400">
+            Başarısız: <span className="text-loss">{stats.avgScoreFailed > 0 ? stats.avgScoreFailed.toFixed(1) : "—"}</span>
+          </p>
         </div>
       </div>
 
       {/* GEÇMİŞ TABLOSU */}
       <Card className="p-4">
+        <div className="mb-3 flex flex-wrap items-end gap-2">
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">Başlangıç</label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => { setStartDate(e.target.value); setPage(0); }}
+              className="rounded-lg border border-line bg-white px-2 py-1.5 text-sm outline-none focus:border-accent"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">Bitiş</label>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => { setEndDate(e.target.value); setPage(0); }}
+              className="rounded-lg border border-line bg-white px-2 py-1.5 text-sm outline-none focus:border-accent"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">Min Skor</label>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={minScore}
+              onChange={(e) => { setMinScore(e.target.value); setPage(0); }}
+              placeholder="0"
+              className="w-20 rounded-lg border border-line bg-white px-2 py-1.5 text-sm outline-none focus:border-accent"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">Max Skor</label>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={maxScore}
+              onChange={(e) => { setMaxScore(e.target.value); setPage(0); }}
+              placeholder="100"
+              className="w-20 rounded-lg border border-line bg-white px-2 py-1.5 text-sm outline-none focus:border-accent"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">Sonuç</label>
+            <select
+              value={statusFilter}
+              onChange={(e) => { setStatusFilter(e.target.value as typeof statusFilter); setPage(0); }}
+              className="rounded-lg border border-line bg-white px-2 py-1.5 text-sm outline-none focus:border-accent"
+            >
+              <option value="all">Tümü</option>
+              <option value="BEKLIYOR">Bekliyor</option>
+              <option value="BASARILI">Başarılı</option>
+              <option value="BASARISIZ">Başarısız</option>
+            </select>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setStartDate(""); setEndDate(""); setMinScore(""); setMaxScore(""); setStatusFilter("all"); setPage(0);
+            }}
+            className="ml-auto rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-600 hover:bg-canvas"
+          >
+            Sıfırla
+          </button>
+        </div>
+
         <div className="odak-scroll">
           <table className="w-full min-w-[900px] border-collapse text-sm">
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-wide text-ink-400">
                 <th className="pb-2 pr-2 font-medium w-8">★</th>
-                <th className="pb-2 pr-3 font-medium">Zaman</th>
-                <th className="pb-2 pr-3 font-medium">Sembol</th>
+                <SortableHeader label="Zaman" sortKey="detected_at" sortConfig={sortConfig} setSortConfig={setSortConfig} />
+                <SortableHeader label="Sembol" sortKey="symbol" sortConfig={sortConfig} setSortConfig={setSortConfig} />
                 <th className="pb-2 pr-3 font-medium">Üreten Sistem</th>
-                <th className="pb-2 pr-3 text-right font-medium">Skor</th>
-                <th className="pb-2 pr-3 text-right font-medium">Giriş Fiyatı</th>
-                <th className="pb-2 pr-3 text-right font-medium">Hedef</th>
-                <th className="pb-2 pr-3 text-right font-medium">Görülen Tepe (MFE)</th>
+                <SortableHeader label="Skor" sortKey="score" sortConfig={sortConfig} setSortConfig={setSortConfig} className="text-right" />
+                <SortableHeader label="Giriş Fiyatı" sortKey="price" sortConfig={sortConfig} setSortConfig={setSortConfig} className="text-right" />
+                <SortableHeader label="Hedef" sortKey="target_pct" sortConfig={sortConfig} setSortConfig={setSortConfig} className="text-right" />
+                <SortableHeader label="Görülen Tepe (MFE)" sortKey="mfe_pct" sortConfig={sortConfig} setSortConfig={setSortConfig} className="text-right" />
                 <th className="pb-2 font-medium">Sonuç</th>
               </tr>
             </thead>
@@ -523,7 +671,13 @@ function HistorySection({
                     </td>
                     <td className="py-2.5 pr-3 font-mono text-xs text-ink-500">{fmtDateTime(n.detected_at)}</td>
                     <td className="py-2.5 pr-3">
-                      <span className="font-mono font-bold text-ink-900">{baseAsset(sym)}</span>
+                      <Link
+                        href={`/grafik?symbol=${encodeURIComponent(sym)}`}
+                        className="font-mono font-bold text-ink-900 hover:text-accent transition-colors"
+                        title={`${sym} grafiğini aç`}
+                      >
+                        {baseAsset(sym)}
+                      </Link>
                       <span className="text-xs text-ink-400"> / TRY</span>
                     </td>
                     <td className="py-2.5 pr-3">
@@ -589,5 +743,38 @@ function HistorySection({
       </Card>
       </>}
     </div>
+  );
+}
+
+function SortableHeader({
+  label,
+  sortKey,
+  sortConfig,
+  setSortConfig,
+  className = "",
+}: {
+  label: string;
+  sortKey: string;
+  sortConfig: { key: string; direction: "asc" | "desc" };
+  setSortConfig: React.Dispatch<React.SetStateAction<{ key: string; direction: "asc" | "desc" }>>;
+  className?: string;
+}) {
+  const active = sortConfig.key === sortKey;
+  return (
+    <th className={`pb-2 pr-3 font-medium ${className}`}>
+      <button
+        type="button"
+        onClick={() =>
+          setSortConfig((prev) => ({
+            key: sortKey,
+            direction: prev.key === sortKey && prev.direction === "desc" ? "asc" : "desc",
+          }))
+        }
+        className="inline-flex items-center gap-1 hover:text-accent"
+      >
+        {label}
+        <span className="font-mono text-[10px]">{active ? (sortConfig.direction === "desc" ? "▼" : "▲") : "⇅"}</span>
+      </button>
+    </th>
   );
 }

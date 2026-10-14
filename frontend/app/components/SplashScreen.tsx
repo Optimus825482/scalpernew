@@ -9,8 +9,13 @@ import {
 } from "react";
 
 const SESSION_KEY = "scalper-splash-shown";
-const MIN_DISPLAY_MS = 3000;
-const MAX_DISPLAY_MS = 4500;
+// 2026-10-14 performans düzeltmesi: yapay 3 saniyelik minimum bekleme
+// "uygulama çok geç yükleniyor" şikayetinin ana nedeniydi — içerik hazır
+// olsa bile kullanıcı en az 3 sn (en kötü 4,5 sn) splash'a bakti. Bütçe
+// ~1 sn'e indirildi: görsel flash'i önlemeye yeter, algılanan yüklenme
+// süresini ~2 sn kısaltır.
+const MIN_DISPLAY_MS = 900;
+const MAX_DISPLAY_MS = 1800;
 
 const STATUS_TEXTS = [
   "Bağlantı kuruluyor…",
@@ -62,7 +67,7 @@ export default function SplashScreen() {
     } catch {}
   }, []);
 
-  // Timers: minimum display gate, hard 3s force-hide, cycling status text.
+  // Timers: minimum display gate, hard force-hide, cycling status text.
   useEffect(() => {
     if (!mounted) return;
 

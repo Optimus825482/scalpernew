@@ -5,11 +5,12 @@ import type { IChartApi, ISeriesApi, UTCTimestamp } from "lightweight-charts";
 import { apiRequest } from "../lib/api";
 import { useLiveMessages, useLiveStatus } from "../lib/liveSocket";
 import { useAuth } from "../lib/auth";
+import { formatPrice } from "../lib/format";
 
 export type Candle = { time: number; open: number; high: number; low: number; close: number; volume: number };
 type Indicator = "volume" | "sma" | "ema" | "bollinger" | "rsi" | "macd" | "vwap" | "atr" | "adx";
 type IndicatorConfig = { enabled: Indicator[]; periods: { sma: number; ema: number; bollinger: number; rsi: number; atr: number; adx: number } };
-const INTERVALS = ["1m", "5m", "15m", "1h", "4h", "1d"] as const;
+const INTERVALS = ["1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"] as const;
 const INDICATORS: Array<{ id: Indicator; label: string }> = [
   { id: "volume", label: "Hacim" }, { id: "sma", label: "SMA" }, { id: "ema", label: "EMA" },
   { id: "bollinger", label: "Bollinger" }, { id: "rsi", label: "RSI" }, { id: "macd", label: "MACD" },
@@ -141,6 +142,8 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
   const [symbol, setSymbol] = useState(normalizeSymbol(initialSymbol));
   const [interval, setInterval] = useState<string>(INTERVALS.includes(initialInterval as typeof INTERVALS[number]) ? initialInterval : "5m");
   const [candles, setCandles] = useState<Candle[]>([]);
+  const [hoveredCandle, setHoveredCandle] = useState<Candle | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [error, setError] = useState("");
   const [restAt, setRestAt] = useState<number | null>(null);
   const [tickAt, setTickAt] = useState<number | null>(null);
@@ -268,6 +271,27 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
       ["rsi", "adx", "atr", "macd"].forEach((scale) => sub?.priceScale(scale).applyOptions({ scaleMargins: { top: 0.1, bottom: 0.1 } }));
       main.timeScale().subscribeVisibleLogicalRangeChange((range) => { if (range) sub?.timeScale().setVisibleLogicalRange(range); });
       sub.timeScale().subscribeVisibleLogicalRangeChange((range) => { if (range) main?.timeScale().setVisibleLogicalRange(range); });
+
+      main.subscribeCrosshairMove((param) => {
+        if (!param.time || !param.seriesData || !candleSeriesRef.current) {
+          setHoveredCandle(null);
+          return;
+        }
+        const bar = param.seriesData.get(candleSeriesRef.current) as any;
+        if (bar && bar.open !== undefined) {
+          setHoveredCandle({
+            time: Number(param.time),
+            open: bar.open,
+            high: bar.high,
+            low: bar.low,
+            close: bar.close,
+            volume: 0,
+          });
+        } else {
+          setHoveredCandle(null);
+        }
+      });
+
       observer = new ResizeObserver(() => {
         if (containerRef.current) main?.applyOptions({ width: containerRef.current.clientWidth });
         if (subContainerRef.current) sub?.applyOptions({ width: subContainerRef.current.clientWidth });
@@ -277,6 +301,55 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
     }).catch(() => setError("Grafik bileşeni yüklenemedi."));
     return () => { cancelled = true; observer?.disconnect(); main?.remove(); sub?.remove(); chartRef.current = null; subChartRef.current = null; candleSeriesRef.current = null; seriesRef.current = {}; appliedRef.current = null; setReady(false); };
   }, [compact]);
+
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsFullscreen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isFullscreen]);
+
+  const [fullscreenHeight, setFullscreenHeight] = useState<number>(540);
+
+  useEffect(() => {
+    if (!chartRef.current || !containerRef.current || !subChartRef.current || !subContainerRef.current) return;
+
+    if (isFullscreen) {
+      const updateFullscreenDimensions = () => {
+        const subVisible = config.enabled.some((id) => ["rsi", "macd", "atr", "adx"].includes(id));
+        const subHeight = subVisible ? 120 : 0;
+        const availableHeight = Math.max(320, window.innerHeight - 240 - subHeight);
+        setFullscreenHeight(availableHeight);
+
+        if (chartRef.current && containerRef.current) {
+          chartRef.current.applyOptions({
+            height: availableHeight,
+            width: containerRef.current.clientWidth,
+          });
+        }
+        if (subChartRef.current && subContainerRef.current) {
+          subChartRef.current.applyOptions({
+            width: subContainerRef.current.clientWidth,
+          });
+        }
+      };
+
+      updateFullscreenDimensions();
+      window.addEventListener("resize", updateFullscreenDimensions);
+      return () => window.removeEventListener("resize", updateFullscreenDimensions);
+    } else {
+      const standardHeight = compact ? 230 : 360;
+      chartRef.current.applyOptions({
+        height: standardHeight,
+        width: containerRef.current.clientWidth,
+      });
+      subChartRef.current.applyOptions({
+        width: subContainerRef.current.clientWidth,
+      });
+    }
+  }, [isFullscreen, compact, config.enabled]);
 
   const values = useMemo(() => calculate(candles, config.periods), [candles, config.periods]);
   // Uygulama anahtarı: sembol/interval/gösterge kümesi veya mum dizisinin
@@ -342,29 +415,72 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
   const toggleIndicator = (id: Indicator) => setConfig((previous) => ({ ...previous, enabled: previous.enabled.includes(id) ? previous.enabled.filter((value) => value !== id) : [...previous.enabled, id] }));
   const updatePeriod = (key: keyof IndicatorConfig["periods"], raw: string) => setConfig((previous) => ({ ...previous, periods: { ...previous.periods, [key]: Math.max(2, Math.min(200, Number(raw) || 2)) } }));
   const last = candles[candles.length - 1];
+  const activeCandle = hoveredCandle ?? last;
   const tickAge = tickAt == null ? null : Math.max(0, Math.floor((clock - tickAt) / 1000));
   const live = socketStatus === "open" && tickAge != null && tickAge <= 30;
   const restAge = restAt == null ? null : Math.max(0, Math.floor((clock - restAt) / 1000));
   const enabledIndicators = INDICATORS.filter(({ id }) => config.enabled.includes(id));
 
-  return <section className={`rounded-xl border border-line bg-white ${compact ? "p-3" : "p-4 sm:p-5"}`} aria-label={`${symbol} canlı mum grafiği`}>
-    <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-      <div className="relative min-w-0">
-        {compact ? <strong className="font-mono text-lg text-ink-900">{symbol}</strong> : <button type="button" onClick={() => { setSearchOpen((value) => !value); setSearch(""); }} className="font-mono text-lg font-bold text-ink-900 hover:text-accent" aria-expanded={searchOpen} aria-haspopup="listbox">{symbol}⌄</button>}
-        <span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-semibold ${live ? "bg-gain-soft text-gain" : "bg-canvas text-ink-500"}`}>{live ? "CANLI" : "REST / ESKİ"}</span>
-        {!compact && <p className="mt-1 text-xs text-ink-400">Binance TR public mumları · {interval}</p>}
-        {searchOpen && !compact && <div className="absolute left-0 top-8 z-30 w-64 rounded-lg border border-line bg-white p-2 shadow-pop">
-          <input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setSearchOpen(false); }} placeholder="İlk 2 harfi yazın…" aria-label="Sembol ara" role="combobox" aria-expanded={filteredSymbols.length > 0} aria-controls={`symbol-options-${symbol}`} className="w-full rounded-md border border-line px-2.5 py-2 font-mono text-sm outline-none focus:border-accent" />
-          {search.length > 0 && search.length < 2 && <p className="px-2 py-2 text-xs text-ink-400">Öneriler için en az 2 harf yazın.</p>}
-          {search.length >= 2 && <ul id={`symbol-options-${symbol}`} role="listbox" className="mt-1 max-h-56 overflow-auto">{filteredSymbols.length ? filteredSymbols.map((option) => <li key={option}><button type="button" role="option" aria-selected={normalizeSymbol(option) === symbol} onClick={() => changeSymbol(option)} className="w-full rounded px-2 py-1.5 text-left font-mono text-sm hover:bg-accent-soft">{option}</button></li>) : <li className="px-2 py-2 text-xs text-ink-400">Eşleşen sembol yok.</li>}</ul>}
-        </div>}
+  return <section className={`rounded-xl border border-line bg-white transition-all ${isFullscreen ? "fixed inset-0 z-50 p-4 sm:p-6 flex flex-col justify-between overflow-y-auto" : compact ? "p-3" : "p-4 sm:p-5"}`} aria-label={`${symbol} canlı mum grafiği`}>
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center gap-2 min-w-0">
+        <div className="relative min-w-0">
+          {compact ? <strong className="font-mono text-lg text-ink-900">{symbol}</strong> : <button type="button" onClick={() => { setSearchOpen((value) => !value); setSearch(""); }} className="font-mono text-lg font-bold text-ink-900 hover:text-accent" aria-expanded={searchOpen} aria-haspopup="listbox">{symbol}⌄</button>}
+          <span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-semibold ${live ? "bg-gain-soft text-gain" : "bg-canvas text-ink-500"}`}>{live ? "CANLI" : "REST / ESKİ"}</span>
+          {searchOpen && !compact && <div className="absolute left-0 top-8 z-30 w-64 rounded-lg border border-line bg-white p-2 shadow-pop">
+            <input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setSearchOpen(false); }} placeholder="İlk 2 harfi yazın…" aria-label="Sembol ara" role="combobox" aria-expanded={filteredSymbols.length > 0} aria-controls={`symbol-options-${symbol}`} className="w-full rounded-md border border-line px-2.5 py-2 font-mono text-sm outline-none focus:border-accent" />
+            {search.length > 0 && search.length < 2 && <p className="px-2 py-2 text-xs text-ink-400">Öneriler için en az 2 harf yazın.</p>}
+            {search.length >= 2 && <ul id={`symbol-options-${symbol}`} role="listbox" className="mt-1 max-h-56 overflow-auto">{filteredSymbols.length ? filteredSymbols.map((option) => <li key={option}><button type="button" role="option" aria-selected={normalizeSymbol(option) === symbol} onClick={() => changeSymbol(option)} className="w-full rounded px-2 py-1.5 text-left font-mono text-sm hover:bg-accent-soft">{option}</button></li>) : <li className="px-2 py-2 text-xs text-ink-400">Eşleşen sembol yok.</li>}</ul>}
+          </div>}
+        </div>
+
+        {/* OHLCV Canlı İnceleme Şeridi */}
+        {activeCandle && (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg bg-canvas/70 border border-line px-2.5 py-1 font-mono text-[11px] text-ink-600">
+            <span>A: <strong className="text-ink-900">{formatPrice(activeCandle.open)}</strong></span>
+            <span>Y: <strong className="text-ink-900">{formatPrice(activeCandle.high)}</strong></span>
+            <span>D: <strong className="text-ink-900">{formatPrice(activeCandle.low)}</strong></span>
+            <span>K: <strong className={activeCandle.close >= activeCandle.open ? "text-gain font-semibold" : "text-loss font-semibold"}>{formatPrice(activeCandle.close)}</strong></span>
+            <span className={`font-semibold ${activeCandle.close >= activeCandle.open ? "text-gain" : "text-loss"}`}>
+              {activeCandle.close >= activeCandle.open ? "+" : ""}{(((activeCandle.close - activeCandle.open) / (activeCandle.open || 1)) * 100).toFixed(2)}%
+            </span>
+          </div>
+        )}
       </div>
-      {!compact && <div className="flex flex-wrap items-center gap-2">
-        <div className="flex rounded-lg border border-line p-0.5" aria-label="Grafik zaman dilimi">{INTERVALS.map((value) => <button key={value} type="button" aria-pressed={interval === value} onClick={() => changeInterval(value)} className={`rounded-md px-2 py-1.5 text-xs ${interval === value ? "bg-accent text-white" : "text-ink-500 hover:bg-canvas"}`}>{value}</button>)}</div>
-        <button type="button" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((value) => !value)} className="rounded-lg border border-line px-2.5 py-2 text-xs text-ink-600">Göstergeler ⚙</button>
-      </div>}
+
+      <div className="flex flex-wrap items-center gap-2">
+        {!compact && (
+          <div className="flex rounded-lg border border-line p-0.5" aria-label="Grafik zaman dilimi">
+            {INTERVALS.map((value) => (
+              <button key={value} type="button" aria-pressed={interval === value} onClick={() => changeInterval(value)} className={`rounded-md px-2 py-1 text-xs ${interval === value ? "bg-accent text-white" : "text-ink-500 hover:bg-canvas"}`}>{value}</button>
+            ))}
+          </div>
+        )}
+        {!compact && (
+          <button type="button" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((value) => !value)} className="rounded-lg border border-line px-2.5 py-1 text-xs text-ink-600 hover:border-accent hover:text-accent">
+            Göstergeler ⚙
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => setIsFullscreen((prev) => !prev)}
+          className="rounded-lg border border-line px-2.5 py-1 text-xs text-ink-600 hover:border-accent hover:text-accent flex items-center gap-1"
+          title={isFullscreen ? "Tam ekrandan çık (Esc)" : "Tam ekran (Esc ile çıkış)"}
+        >
+          <span>{isFullscreen ? "✕" : "⛶"}</span>
+          <span className="hidden sm:inline">{isFullscreen ? "Çıkış" : "Tam Ekran"}</span>
+        </button>
+      </div>
     </div>
     {!compact && settingsOpen && <div className="mb-3 rounded-lg border border-line bg-slate-50 p-3">
+      {/* 1-Tık Hazır Paketler */}
+      <div className="mb-2.5 flex flex-wrap items-center gap-1.5 border-b border-line pb-2.5">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-ink-400 mr-1">Hazır Paketler:</span>
+        <button type="button" onClick={() => setConfig((p) => ({ ...p, enabled: ["volume", "ema", "rsi", "vwap"] }))} className="rounded-md border border-line bg-white px-2 py-1 text-[11px] font-semibold text-accent hover:border-accent hover:bg-accent-soft">🎯 Scalp (EMA+RSI+VWAP)</button>
+        <button type="button" onClick={() => setConfig((p) => ({ ...p, enabled: ["volume", "sma", "bollinger", "macd"] }))} className="rounded-md border border-line bg-white px-2 py-1 text-[11px] font-semibold text-violet-600 hover:border-violet-400 hover:bg-violet-50">📈 Trend (SMA+BB+MACD)</button>
+        <button type="button" onClick={() => setConfig((p) => ({ ...p, enabled: ["volume", "atr", "adx", "bollinger"] }))} className="rounded-md border border-line bg-white px-2 py-1 text-[11px] font-semibold text-amber-700 hover:border-amber-400 hover:bg-amber-50">⚡ Volatilite (ATR+ADX+BB)</button>
+        <button type="button" onClick={() => setConfig((p) => ({ ...p, enabled: ["volume"] }))} className="rounded-md border border-line bg-white px-2 py-1 text-[11px] font-medium text-ink-500 hover:text-ink-900">🧹 Temizle</button>
+      </div>
       <div className="flex flex-wrap gap-2">{INDICATORS.map(({ id, label }) => <button key={id} type="button" aria-pressed={config.enabled.includes(id)} onClick={() => toggleIndicator(id)} className={`rounded-md border px-2.5 py-1.5 text-xs ${config.enabled.includes(id) ? "border-accent bg-accent-soft text-accent" : "border-line bg-white text-ink-500"}`}>{label}</button>)}</div>
       <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">{([ ["sma", "SMA"], ["ema", "EMA"], ["bollinger", "BB"], ["rsi", "RSI"], ["atr", "ATR"], ["adx", "ADX"] ] as const).map(([key, label]) => <label key={key} className="text-[10px] text-ink-500">{label} periyodu<input type="number" min={2} max={200} value={config.periods[key]} onChange={(event) => updatePeriod(key, event.target.value)} className="mt-1 w-full rounded border border-line bg-white px-2 py-1 font-mono text-xs text-ink-800" /></label>)}</div>
     </div>}
@@ -375,8 +491,19 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
         return <span key={id} className="rounded-md border border-line bg-white px-2 py-1 font-mono text-ink-600">{label}{id === "macd" ? " Hist" : id === "bollinger" ? ` Üst ${config.periods.bollinger},2` : id === "sma" || id === "ema" || id === "rsi" || id === "atr" || id === "adx" ? ` ${config.periods[id]}` : ""} · {values[id] == null ? "—" : values[id]?.toLocaleString("tr-TR", { maximumSignificantDigits: 6 })}</span>;
       })}
     </div>
-    <div ref={containerRef} className={`w-full overflow-hidden rounded-t-lg bg-white ${compact ? "h-[230px]" : "h-[360px]"}`} />
-    <div ref={subContainerRef} className={`w-full overflow-hidden rounded-b-lg border-t border-line/70 ${compact ? "h-[72px]" : "h-[115px]"} ${config.enabled.some((id) => ["rsi", "macd", "atr", "adx"].includes(id)) ? "" : "hidden"}`} />
+    <div
+      ref={containerRef}
+      style={{ height: isFullscreen ? `${fullscreenHeight}px` : undefined }}
+      className={`w-full overflow-hidden rounded-t-lg bg-white ${
+        isFullscreen ? "" : compact ? "h-[230px]" : "h-[360px]"
+      }`}
+    />
+    <div
+      ref={subContainerRef}
+      className={`w-full overflow-hidden rounded-b-lg border-t border-line/70 ${
+        compact ? "h-[72px]" : "h-[115px]"
+      } ${config.enabled.some((id) => ["rsi", "macd", "atr", "adx"].includes(id)) ? "" : "hidden"}`}
+    />
     <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-ink-400" role="status">
       <span>{live ? `WebSocket canlı · son mum ${tickAge}s önce` : `REST yedek · son yenileme ${restAge == null ? "bekleniyor" : `${restAge}s önce`}`}{error ? ` · ${error}` : ""}</span>
       <a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noreferrer" className="underline decoration-dotted">TradingView Lightweight Charts™ attribution</a>

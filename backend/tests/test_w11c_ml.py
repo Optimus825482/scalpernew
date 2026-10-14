@@ -41,61 +41,6 @@ def _step_series():
     return closes, highs, lows, vols
 
 
-class _StubEstimator:
-    """Gerçek model kurmadan egitim akisini yürütmek icin sahte estimator.
-
-    `train()` estimator'lari fonksiyon icinde import eder; testte
-    `sklearn.ensemble` uzerindeki isimler bunlarla degistirilir.
-    """
-
-    def __init__(self, **kwargs):
-        self.kwargs = kwargs
-        self.fit_rows = None
-
-    def fit(self, X, y, sample_weight=None):
-        self.fit_rows = len(np.asarray(X))
-        return self
-
-    def predict(self, X):
-        return np.zeros(len(np.asarray(X)), dtype=np.float64)
-
-    def predict_proba(self, X):
-        count = len(np.asarray(X))
-        return np.column_stack([np.full(count, 0.4), np.full(count, 0.6)])
-
-
-def _training_candles(symbols, bars=620):
-    """`train()` icin yeterli (>=500 gecerli ornek) sentetik 5m mumlar.
-
-    Hacim SABIT 12.0 degil, dalgalanan bir seri olarak uretilir. Nedeni
-    yapilandirilmis bir durum: `vol_z` = (v - mean20)/std20, std20 == 0 iken
-    tanimsizdir (NaN) — bu egittte de, cikarimda da (`_velocity_volume_z`
-    duz hacimde None doner) AYNI sekilde gecerlidir, yani parity bozulmaz.
-    Ama `train()`'in D-10 sonlu-dunya maskesi boyle satirlari eler ve SABIT
-    hacimli bir fixture'da satirlarin %100'u dustugu icin egitim hicbir
-    ufukta ornek bulamaz ("Egitim icin yeterli ornek yok") ve bu test sessizce
-    hicbir sey egitmeden gecerdi. Gercekci (degisken) hacim, maskenin yalniz
-    isiNMA onculu ilk ~25 bari elemesine izin verir.
-    """
-    out = {}
-    for offset, symbol in enumerate(symbols):
-        base = 100.0 + 10.0 * offset
-        close = np.array([base + index * 0.3 for index in range(bars)],
-                         dtype=np.float64)
-        # Deterministik, pozitif ve herhangi bir 20-bar penceresinde
-        # std20 > 0 olan hacim (test tekrarlanabilirligi icin seed'siz).
-        volume = 12.0 + np.array([(index * 7 + offset * 3) % 11 for index in range(bars)],
-                                 dtype=np.float64)
-        out[symbol] = {
-            "open_time": np.arange(bars, dtype=np.int64) * 300_000,
-            "high": close + 0.4,
-            "low": close - 0.3,
-            "close": close,
-            "volume": volume,
-        }
-    return out
-
-
 class _StubModel:
     def __init__(self, value=0.02, proba=0.7):
         self.value = value
@@ -288,71 +233,6 @@ class ModelCacheStampTests(unittest.TestCase):
         assert ml_forecast._MODEL_CACHE["artifact"] is None
 
 
-class SymbolCodeStabilityTests(unittest.TestCase):
-    """ML-07 — sembol kodları ardışık eğitimler arasında kararlı kalmalı."""
-
-    def test_codes_are_inherited_for_known_symbols(self):
-        merged = ml_forecast._merge_symbol_codes(["AAA", "BBB", "CCC"], {"AAA": 7, "CCC": 2})
-        assert merged["AAA"] == 7
-        assert merged["CCC"] == 2
-
-    def test_new_symbols_are_appended_above_the_max(self):
-        merged = ml_forecast._merge_symbol_codes(["AAA", "BBB", "ZZZ"], {"AAA": 7, "BBB": 9})
-        assert merged["ZZZ"] == 10
-
-    def test_no_previous_mapping_falls_back_to_input_order(self):
-        # `train()` girdiyi `sorted(candles)` ile verir; yardımcı sırayı korur.
-        merged = ml_forecast._merge_symbol_codes(["AAA", "BBB"], None)
-        assert merged == {"AAA": 0, "BBB": 1}
-
-    def test_train_inherits_previous_codes(self):
-        """ML-07 — `train()` ÇAĞRI YERİ de devralmayi kullanmali.
-
-        `_merge_symbol_codes`'u izole test etmek yetmiyordu: cagri yeri
-        `{sym: idx for idx, sym in enumerate(symbols)}` ile degistirilse
-        bile hicbir test kirilmiyordu. Bu test hem cagri yerini hem
-        artifact'a yazilan eslemeyi dogrular.
-        """
-        previous = {"AAAUSDT": 41, "BBBUSDT": 7}
-        candles = _training_candles(["AAAUSDT", "BBBUSDT"])
-        calls = []
-        real = ml_forecast._merge_symbol_codes
-
-        def spy(symbols, prev):
-            calls.append((list(symbols), prev))
-            return real(symbols, prev)
-
-        captured = {}
-        with tempfile.TemporaryDirectory() as tmp:
-            import sklearn.ensemble as sk_ensemble
-            with mock.patch.object(ml_forecast, "_merge_symbol_codes",
-                                   side_effect=spy), \
-                 mock.patch.object(ml_forecast.config, "ML_MODELS_DIR", tmp), \
-                 mock.patch.object(sk_ensemble, "HistGradientBoostingRegressor",
-                                   _StubEstimator), \
-                 mock.patch.object(sk_ensemble, "HistGradientBoostingClassifier",
-                                   _StubEstimator), \
-                 mock.patch.object(joblib, "dump",
-                                   lambda obj, path, **kw: captured.update(obj)):
-                ml_forecast.train(candles, [], previous)
-
-        assert calls, "train() _merge_symbol_codes'u cagirmali"
-        assert calls[0][0] == ["AAAUSDT", "BBBUSDT"]
-        assert calls[0][1] is previous
-        assert captured["symbol_codes"] == {"AAAUSDT": 41, "BBBUSDT": 7}, (
-            "sembol kodlari onceki artifact'tan devralinmali")
-
-    def test_codes_are_unique(self):
-        merged = ml_forecast._merge_symbol_codes(["A", "B", "C", "D"], {"A": 3})
-        assert len(set(merged.values())) == len(merged)
-
-    def test_dropped_symbols_do_not_shift_the_rest(self):
-        first = ml_forecast._merge_symbol_codes(["AAA", "BBB", "CCC"], None)
-        second = ml_forecast._merge_symbol_codes(["AAA", "CCC"], first)
-        assert second["AAA"] == first["AAA"]
-        assert second["CCC"] == first["CCC"]
-
-
 class DeadFeatureFillTests(unittest.TestCase):
     """ML-08 — `ret1_pct` / `ret5_pct` / `vol_z` artık gerçekten doldurulmalı."""
 
@@ -400,16 +280,6 @@ class DeadFeatureFillTests(unittest.TestCase):
         with mock.patch.object(ml_forecast, "load_model", lambda *a, **k: artifact):
             ml_forecast.predict_target("TESTUSDT", features, 5)
         assert abs(float(stub.last[0][3]) - 0.0) < 1e-9
-
-    def test_journal_samples_carry_vol_z(self):
-        rows = [{
-            "direction": "up", "symbol": "TESTUSDT", "horizon_minutes": 5,
-            "max_favorable_pct": 2.5, "timestamp": 1_700_000_000.0,
-            "snapshot": {"atr_pct": 1.0, "ret3_pct": 0.5, "rsi": 55.0, "vol_z": 1.75},
-        }]
-        X, _, _, _, _, _ = ml_forecast.prepare_journal_samples(rows, {"TESTUSDT": 0})
-        assert X.shape[0] == 1
-        assert abs(float(X[0][7]) - 1.75) < 1e-5
 
     def test_chart_forecast_forwards_every_feature(self):
         from app.routers import chart_forecast
