@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useLiveMessages } from "../lib/liveSocket";
 import { sound } from "../lib/sound";
 import { formatPct, formatPrice } from "../lib/format";
@@ -17,9 +17,12 @@ export type SignalToast = {
   timestamp: number;
 };
 
+const DIALOG_TTL_MS = 12_000;
+
 export default function LiveNotificationToast({ onSelectSymbol }: { onSelectSymbol?: (symbol: string) => void }) {
   const [toasts, setToasts] = useState<SignalToast[]>([]);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const router = useRouter();
 
   // Ses ayarını localStorage veya tercihlerden al
   useEffect(() => {
@@ -70,10 +73,10 @@ export default function LiveNotificationToast({ onSelectSymbol }: { onSelectSymb
 
       setToasts((prev) => [...newSignals.slice(0, 3), ...prev].slice(0, 4));
 
-      // 8 saniye sonra otomatik kaybolsun
+      // Süresi dolan diyalogları temizle
       setTimeout(() => {
-        setToasts((prev) => prev.filter((t) => now - t.timestamp < 8000));
-      }, 8200);
+        setToasts((prev) => prev.filter((t) => Date.now() - t.timestamp < DIALOG_TTL_MS));
+      }, DIALOG_TTL_MS + 200);
     }
   });
 
@@ -83,56 +86,82 @@ export default function LiveNotificationToast({ onSelectSymbol }: { onSelectSymb
 
   if (toasts.length === 0) return null;
 
+  const dialog = toasts[0];
+  const queuedCount = toasts.length - 1;
+  const goChart = () => {
+    removeToast(dialog.id);
+    router.push(`/grafik?symbol=${encodeURIComponent(dialog.symbol)}`);
+  };
+  const openTrade = () => {
+    onSelectSymbol?.(dialog.symbol);
+    removeToast(dialog.id);
+  };
+
   return (
-    <div className="fixed bottom-5 right-5 z-50 flex max-w-sm flex-col gap-2 pointer-events-none">
-      {toasts.map((toast) => (
-        <div
-          key={toast.id}
-          className="pointer-events-auto flex items-start gap-3 rounded-xl border border-accent/30 bg-white/95 p-3.5 shadow-2xl backdrop-blur-md transition-all animate-in slide-in-from-bottom-5 duration-300"
-          role="alert"
-        >
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent font-bold text-base">
-            ⚡
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center justify-between gap-1">
-              <span className="font-mono text-sm font-bold text-ink-900">
-                {baseAsset(toast.symbol)}
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-ink-900/50 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      onClick={() => removeToast(dialog.id)}
+    >
+      <div
+        className="pointer-events-auto w-full max-w-sm rounded-2xl border border-accent/30 bg-white p-5 shadow-2xl animate-in fade-in zoom-in-95 duration-200"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-accent-soft text-xl text-accent">
+              ⚡
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-accent">{dialog.source}</p>
+              <p className="font-mono text-lg font-bold leading-tight text-ink-900">
+                {baseAsset(dialog.symbol)}
                 <span className="text-xs font-normal text-ink-400"> / TRY</span>
-              </span>
-              <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] font-semibold text-accent">
-                {toast.source}
-              </span>
-            </div>
-            <div className="mt-1 flex items-baseline gap-2 text-xs">
-              {toast.price && <span className="font-mono font-medium text-ink-700">{formatPrice(toast.price)}</span>}
-              {toast.targetPct != null && (
-                <span className="font-mono font-bold text-gain">↗ {formatPct(toast.targetPct, 1, true)}</span>
-              )}
-              {toast.score != null && <span className="text-[11px] text-ink-400">Skor: {toast.score}</span>}
-            </div>
-            <div className="mt-2.5 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  onSelectSymbol?.(toast.symbol);
-                  removeToast(toast.id);
-                }}
-                className="rounded-md bg-accent px-2.5 py-1 text-xs font-semibold text-white shadow-sm hover:bg-accent/90"
-              >
-                Hemen Al / İşlem Yap
-              </button>
-              <button
-                type="button"
-                onClick={() => removeToast(toast.id)}
-                className="rounded-md px-2 py-1 text-xs text-ink-400 hover:bg-slate-100 hover:text-ink-700"
-              >
-                Kapat
-              </button>
+              </p>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => removeToast(dialog.id)}
+            aria-label="Kapat"
+            className="grid h-7 w-7 place-items-center rounded-lg text-ink-400 transition-colors hover:bg-canvas hover:text-ink-700"
+          >
+            ✕
+          </button>
         </div>
-      ))}
+
+        <div className="mt-4 flex items-baseline gap-3 rounded-xl bg-canvas px-3.5 py-2.5 text-sm">
+          {dialog.price && <span className="font-mono font-semibold text-ink-900">{formatPrice(dialog.price)}</span>}
+          {dialog.targetPct != null && (
+            <span className="font-mono text-base font-bold text-gain">↗ {formatPct(dialog.targetPct, 1, true)}</span>
+          )}
+          {dialog.score != null && <span className="ml-auto text-xs text-ink-400">Skor: {dialog.score}</span>}
+        </div>
+
+        <div className="mt-5 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={goChart}
+            className="flex-1 rounded-xl border border-line px-3 py-2.5 text-sm font-semibold text-ink-700 transition-colors hover:bg-canvas"
+          >
+            📈 Grafiğe Git
+          </button>
+          <button
+            type="button"
+            onClick={openTrade}
+            className="flex-1 rounded-xl bg-accent px-3 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-accent-hover"
+          >
+            ⚡ İşlem Aç
+          </button>
+        </div>
+
+        {queuedCount > 0 && (
+          <p className="mt-3 text-center text-[11px] text-ink-400">
+            {queuedCount} yeni sinyal daha bekliyor
+          </p>
+        )}
+      </div>
     </div>
   );
 }
