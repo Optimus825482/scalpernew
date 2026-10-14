@@ -115,8 +115,10 @@ class BollingerWidthParityTests(unittest.TestCase):
     def test_helper_matches_the_training_definition(self):
         closes, _, _, _ = _series()
         values = np.asarray(closes, dtype=np.float64)
-        training = float(ml_forecast._rolling_std(values, 20)[-1]) * 4.0 / float(values[-1])
-        assert abs(ml_forecast.bb_width_ratio_from_bars(closes) - training) < 1e-12
+        # Eğitim tanımı: son 20 bar penceresinde 4·std(ddof=0)/close.
+        window = values[-20:]
+        expected = 4.0 * float(window.std()) / float(values[-1])
+        assert abs(ml_forecast.bb_width_ratio_from_bars(closes) - expected) < 1e-12
 
     def test_helper_uses_close_not_mean_as_denominator(self):
         closes = [100.0 + index * 1.5 for index in range(40)]

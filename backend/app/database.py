@@ -4185,39 +4185,9 @@ async def fix_upside_scout_units():
     return await _run_db(op)
 
 
-async def get_ml_training_candles(cutoff_ms: int, max_bars_per_symbol: int = 3000):
-    """M5 candle'ları sembol başına son N bar olacak şekilde dict döndürür.
-
-    historical_candles'a yalnızca 5m mumlar yazılır (backfill + backtest);
-    1m veri toplanmadığından ML eğitimi 5m bar üzerinden çalışır
-    (5dk ufuk = 1 bar, 15dk ufuk = 3 bar).
-    """
-    def op(conn):
-        data: dict[str, dict[str, list]] = {}
-        # PERFORMANS (2026-09-26): eski sorgu penceredeki TÜM satırları çekip
-        # sembol başına fazlasını Python'da atıyordu (10 günlük pencerede tüm
-        # semboller × 288 bar transferi). Kırpım ROW_NUMBER ile SQL'e taşındı —
-        # çıktı birebir aynı: sembol başına son N bar, open_time ASC.
-        rows = conn.execute(
-            """SELECT symbol, open_time, high, low, close, volume FROM (
-                   SELECT symbol, open_time, high, low, close, volume,
-                          ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY open_time DESC) AS rn
-                   FROM historical_candles WHERE timeframe='5m' AND open_time >= ?
-               ) t
-               WHERE rn <= ?
-               ORDER BY symbol, open_time ASC""", (int(cutoff_ms), int(max_bars_per_symbol))).fetchall()
-        for row in rows:
-            # Postgres (asyncpg) satırları dict döner; tuple-unpack anahtar
-            # stringlerini değişkene atadığı için dict erişimi kullanılır.
-            symbol = str(row["symbol"]).upper()
-            bucket = data.setdefault(symbol, {"open_time": [], "high": [], "low": [], "close": [], "volume": []})
-            bucket["open_time"].append(int(row["open_time"]))
-            bucket["high"].append(float(row["high"]))
-            bucket["low"].append(float(row["low"]))
-            bucket["close"].append(float(row["close"]))
-            bucket["volume"].append(float(row["volume"]))
-        return data
-    return await _run_db(op)
+# get_ml_training_candles kaldırıldı (2026-10-14): ML eğitimi bu uygulamadan
+# çıkarıldı; artifact verisi `save_ml_model_artifact`/`get_latest_ml_model_artifact`
+# üzerinden yalnızca raporlama için saklanmaya devam eder.
 
 
 async def save_ml_model_artifact(meta: dict):

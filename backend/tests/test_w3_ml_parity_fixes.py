@@ -1,8 +1,9 @@
-"""W3 düzeltme kilitleri: ML-01 / ML-02 / ML-09 / I-05 / I-02 / I-01.
+"""W3 düzeltme kilitleri: ML-01 / I-05 / I-02 / I-01.
 
-Eğitim-çıkarım bar-dayanağı uyumu ve journal birim bütünlüğü bu testlerde
-gelecekte kırılmasın diye sabitlenir (repo'nun en ölümcül hata sınıfı).
-Green/red renk semantiğiyle ilgisi yok; yalnız pas niteliklerini test eder.
+Eğitim-çıkarım bar-dayanağı uyumu bu testlerde gelecekte kırılmasın diye
+sabitlenir (repo'nun en ölümcül hata sınıfı). 2026-10-14: ML eğitimi bu
+uygulamadan kaldırıldı; journal-örnekleme (ML-02/ML-09) testleri eğitimle
+birlikte çıkarıldı, çıkarım/artifact testleri korundu.
 """
 import joblib
 import numpy as np
@@ -11,50 +12,13 @@ import pytest
 from app import ml_forecast
 from app.config import config as cfg
 from app.ml_forecast import (TRAINING_BAR_MINUTES, inference_bar_minutes,
-                             prepare_journal_samples, FEATURE_NAMES, FEATURE_VERSION)
+                             FEATURE_NAMES, FEATURE_VERSION)
 
 
 def test_inference_bar_minutes_equals_training():
     """ML-01: çıkarım eğitimle aynı bar dayanağı: 5m."""
     assert inference_bar_minutes() == TRAINING_BAR_MINUTES
     assert TRAINING_BAR_MINUTES == 5
-
-
-def test_prepare_returns_timestamps():
-    """ML-02: 6'lı dönüşün son öğesi karar zaman damgalarıdır (ms)."""
-    rows = [{
-        "direction": "up", "max_favorable_pct": 1.5, "symbol": "BTC",
-        "horizon_minutes": 5, "timestamp": 1.75e12,
-        "snapshot": {"atr_pct": 1.0, "ret3_pct": 0.5, "rsi": 57},
-    }]
-    X, y_mfe, y_hit, hids, w, ts = prepare_journal_samples(rows, {"BTC": 0})
-    assert X.shape[0] == 1
-    assert ts.shape[0] == 1
-    assert ts[0] == pytest.approx(1.75e12)
-
-
-def test_prepare_drops_chat_candidate_without_features():
-    """ML-09: özellik alanı taşımayan chat-candidate satırı üretilmemeli."""
-    rows = [{
-        "direction": "up", "max_favorable_pct": 1.0, "symbol": "BTC",
-        "horizon_minutes": 15, "timestamp": 1.75e12,
-        "snapshot": {"candidate": {"trend": "bull", "volume": 1, "liquidity": 1},
-                     "label_policy": {}},
-    }]
-    out = prepare_journal_samples(rows, {"BTC": 0})
-    assert out[0].shape[0] == 0
-
-
-def test_atr_nan_not_fabricated_zero():
-    """ML-09: atr_pct=None → 0.0 uydurulmaz, NaN kalır."""
-    rows = [{
-        "direction": "up", "max_favorable_pct": 1.0, "symbol": "BTC",
-        "horizon_minutes": 5, "timestamp": 1.75e12,
-        "snapshot": {"rsi": 55, "ret3_pct": 0.4},
-    }]
-    X, *_ = prepare_journal_samples(rows, {"BTC": 0})
-    assert X.shape[0] == 1
-    assert np.isnan(X[0][3])
 
 
 def test_load_model_rejects_mismatched_training_bar(tmp_path, monkeypatch):

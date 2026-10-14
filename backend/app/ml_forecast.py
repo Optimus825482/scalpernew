@@ -53,17 +53,15 @@ FEATURE_NAMES = [
 ]
 
 # ---------------------------------------------------------------------------
-# Feature-unit contract (tek kaynak — eğitim ve çıkarım AYNI birimi görmeli):
-#   TÜM ``*_pct`` girdi alanları YÜZDE'dir (2.0 = %2). predict_target ve
-#   prepare_journal_samples bunları içeride KESİRE çevirir (2.0 -> 0.02) ve
-#   satıra kesir olarak yazar; build_symbol_dataset ise aynı sonucu doğrudan
-#   ham fiyat dizilerinden üretir. Ayrıca rsi/mfi/aroon 0..100 ölçeğindedir.
+# Feature-unit contract (tek kaynak — artifact'taki model AYNI birimi görür):
+#   TÜM ``*_pct`` girdi alanları YÜZDE'dir (2.0 = %2). predict_target bunları
+#   içeride KESİRE çevirir (2.0 -> 0.02) ve satıra kesir olarak yazar.
+#   Ayrıca rsi/mfi/aroon 0..100 ölçeğindedir.
 #
-# Gösterge tanım sözleşmesi (2026-09-10): eğitimdeki vektörel hesaplar ile
-# çıkarımdaki skaler hesaplar AYNI tanımı kullanmalıdır. Kanonik skaler
+# Gösterge tanım sözleşmesi (2026-09-10): model artifact'ı kanonik skaler
 # kaynak ``technical_analysis`` (``_rsi`` Wilder, ``_aroon`` periyot 25,
-# ``_linreg_slope_pct`` periyot 10). Buradaki vektörel eşlenikler
-# ``tests/test_ml_feature_parity.py`` ile birebir eşleşmeye zorlanır.
+# ``_linreg_slope_pct`` periyot 10) tanımlarıyla eğitilmiştir; çıkarım aynı
+# tanımları kullanan alanları iletir.
 # ---------------------------------------------------------------------------
 def _ratio_from_pct(value) -> float | None:
     """None/NaN güvenli yüzde→kesir dönüşümü (sözleşme: girdi YÜZDE)."""
@@ -81,8 +79,8 @@ def _ratio_from_pct(value) -> float | None:
 def velocity_proxy_value(atr_ratio: float | None, ret3_ratio: float | None) -> float:
     """Paylaşılan hız vekili: ATR oranı × 100 × (1 + 3-bar getiri oranı).
 
-    build_symbol_dataset'teki ``atr_pct * 100 * (1 + ret3)`` ile birebir aynı
-    tanım; eğitim/çıkarım arasında özellik kaymasını önler.
+    Artifact'ın eğitim tanımıyla (``atr_pct * 100 * (1 + ret3)``) birebir aynı;
+    çıkarımda özellik kaymasını önler.
     """
     try:
         atr = float(atr_ratio) if atr_ratio is not None and np.isfinite(float(atr_ratio)) else 0.0
@@ -93,12 +91,11 @@ def velocity_proxy_value(atr_ratio: float | None, ret3_ratio: float | None) -> f
 
 
 def atr_ratio_from_bars(highs, lows, closes, period: int = 14) -> float | None:
-    """Kanonik ATR ORANI (atr / fiyat) — eğitim ve çıkarım AYNI pencereyi kullanır.
+    """Kanonik ATR ORANI (atr / fiyat) — artifact'ın eğitim penceresiyle aynı.
 
-    ML-04 (2026-09-12): `build_symbol_dataset` son ``period`` (14) true-range'in
-    basit ortalamasını kullanır. velocity 15, chart_forecast ise 14 elemanla
-    hesaplıyordu → aynı isimli özellik üç farklı tanım (ölçülen medyan oran
-    0.9928, aralık 0.9439–1.0978). Tek tanım burasıdır.
+    ML-04 (2026-09-12): eğitim son ``period`` (14) true-range'in basit
+    ortalamasını kullanmıştır. velocity 15, chart_forecast ise 14 elemanla
+    hesaplıyordu → aynı isimli özellik üç farklı tanım. Tek tanım burasıdır.
 
     Dönen değer KESİRdİr; ``*_pct`` bekleyen çağıranlar ×100 uygular.
     """
