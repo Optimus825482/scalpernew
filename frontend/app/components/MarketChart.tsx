@@ -250,7 +250,7 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
     let sub: IChartApi | null = null;
     void import("lightweight-charts").then((charts) => {
       if (cancelled || !containerRef.current || !subContainerRef.current) return;
-      const common = { layout: { background: { color: "#ffffff" }, textColor: "#64748b", attributionLogo: true }, grid: { vertLines: { color: "#eef2f7" }, horzLines: { color: "#eef2f7" } }, rightPriceScale: { borderColor: "#e2e8f0" }, timeScale: { borderColor: "#e2e8f0", timeVisible: true, secondsVisible: false, fixLeftEdge: true, fixRightEdge: true }, crosshair: { mode: 1 }, handleScroll: { vertTouchDrag: false } };
+      const common = { layout: { background: { color: "#ffffff" }, textColor: "#64748b", attributionLogo: true }, grid: { vertLines: { color: "#eef2f7" }, horzLines: { color: "#eef2f7" } }, rightPriceScale: { borderColor: "#e2e8f0" }, timeScale: { borderColor: "#e2e8f0", timeVisible: true, secondsVisible: false, fixLeftEdge: true, fixRightEdge: true, rightOffset: 6, minBarSpacing: 0.5 }, crosshair: { mode: 1 }, handleScroll: { vertTouchDrag: false } };
       main = charts.createChart(containerRef.current, { ...common, width: containerRef.current.clientWidth, height: compact ? 230 : 360 });
       sub = charts.createChart(subContainerRef.current, { ...common, width: subContainerRef.current.clientWidth, height: compact ? 72 : 115, timeScale: { ...common.timeScale, visible: false } });
       chartRef.current = main; subChartRef.current = sub;
@@ -377,10 +377,18 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
       seriesRef.current.adx?.setData(enabled.has("adx") ? lineData(values.adx) : []);
       seriesRef.current.atr?.setData(enabled.has("atr") ? lineData(values.atr) : []);
       seriesRef.current.macd?.setData(enabled.has("macd") ? candles.flatMap((candle, index) => values.histogram[index] == null ? [] : [{ time: toTime(candle.time), value: values.histogram[index] as number, color: (values.histogram[index] as number) >= 0 ? "#08a66a" : "#e24755" }]) : []);
-      // fitContent yalnızca sembol/interval/gösterge değişince; pencere kayması
-      // (yeni mum gelince en eski düşer) kullanıcının yakınlaştırmasını bozmasın.
+      // Yeni görünüm: TÜM mumları sığdırmak yerine son ~120 mumu okunak
+      // genişlikte göster + sağda boşluk payı bırak.
+      // Neden: fitContent 500 mumu sıkıştırınca barSpacing min'e iner, görünen
+      // pencere tüm veriyi kapsar → sürükleme/kaydırma oynamıyor (pay sıfır) ve
+      // son bar sağ kenara dayalı yarı kırpık çıkıyordu. ~120 mum ile 380 mumluk
+      // kaydırma payı kalır (sol çekince kaydırma/zoom çalışır), sağ kenar
+      // rightOffset kadar boşluklu kalır (son bar hiç kırpılmaz).
       if (keyChanged) {
-        chartRef.current.timeScale().fitContent(); subChartRef.current.timeScale().fitContent();
+        const bars = Math.max(candles.length, 1);
+        const from = Math.max(0, bars - 120);
+        chartRef.current.timeScale().setVisibleLogicalRange({ from, to: bars + 4 });
+        subChartRef.current.timeScale().setVisibleLogicalRange({ from, to: bars + 4 });
       }
       appliedRef.current = { key, firstTime };
       return;
