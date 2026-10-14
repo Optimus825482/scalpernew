@@ -121,10 +121,18 @@ services:
       - "8004"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8004/health', timeout=10)"]
-      start_period: 60s
+      # 2026-10-14 (deploy düzeltmesi): uvicorn, lifespan açılışı
+      # (startup_services) tamamlanmadan /health'e YANIT VERMEZ. Açılış
+      # migration + init_db + load_state + Binance ısınma + 25+ arka plan
+      # görevi kadar sürebiliyor. Eski bütçe 120 sn (60 start + 12×5) idi;
+      # 03:38:03'te başlayan backend /health'e 120 sn içinde yanıt veremedi →
+      # "unhealthy" → compose "dependency failed to start" → deploy BAŞARISIZ
+      # sayıldı (image'lar sağlamdı, sadece ısınma bütçesi yetmedi).
+      # Bütçe ~6 dk (240 start + 20×5) olarak genişletildi.
+      start_period: 240s
       interval: 5s
-      timeout: 8s
-      retries: 12
+      timeout: 10s
+      retries: 20
     labels:
       - "traefik.enable=false"
     logging: *default-logging
@@ -186,8 +194,13 @@ services:
     depends_on:
       frontend:
         condition: service_started
+      # 2026-10-14 (deploy düzeltmesi): backend service_healthy'i BEKLENMİYOR —
+      # backend yavaş ısınırken tüm deploy'un kilitlenmesini istemiyoruz;
+      # yanıtlar (backend'siz 200 döner), backend hazır olduğunda trafik
+      # akar. Backend ısınma süresince API çağrıları standart backend_unavailable
+      # (503) sayfasını alır — tasarlandığı gibi.
       backend:
-        condition: service_healthy
+        condition: service_started
     expose:
       - "80"
     networks:
