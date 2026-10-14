@@ -1,39 +1,36 @@
-# SCALPERNEW — bağımsız izole deployment
+# SCALPERNEW — bağımsız izole trade platformu
 
-Eski stack'in (kök `docker-compose.yaml` → scalper.erkanerdem.online) **tamamen
-ayrı** bir kopyası: kendi Postgres'i (DB adı: `scalpernew`), kendi volume'ları,
-kendi ağı ve kendi domain'i (`scalpernew.erkanerdem.online`) var. Eski stack ile
-hiçbir kaynak paylaşmaz; aynı sunucuda yan yana çalışabilir.
+Scalper Agent ana projesinden (scalper.erkanerdem.online) **tamamen ayrı**, kendi
+başına deploy edilebilen uygulama: kendi Postgres'i (DB adı: `scalpernew`), kendi
+volume'ları, kendi ağı ve kendi domain'i (`scalpernew.erkanerdem.online`) var.
+Ana projeyle hiçbir kaynak paylaşmaz; aynı sunucuda yan yana da çalışabilir.
 
-## Dizin yapısı
+## Bileşenler
 
 | Dizin | İçerik |
 |---|---|
-| `backend/` | Backend'in temiz kopyası (yalnız Dockerfile'ın kullandığı: `app/`, `migrations/`, `scripts/`, `.well-known/`, testler). Araştırma JSON'ları, `.env`, venv DAHİL DEĞİL. |
-| `frontend/` | `scalperintelligent` arayüzünün kopyası (node_modules/.next hariç). **basePath YOK** — kökte servis edilir. |
-| `nginx/` | Bu stack'e özel hardened gateway config (`scalpernew.erkanerdem.online`). |
-| `whatsapp-bridge/` | Baileys köprüsü (varsayılan kapalı). |
-| `docker-compose.yaml` | Bağımsız stack tanımı. |
-| `.env.example` | Secret şablonu → `.env` olarak doldurun. |
+| `backend/` | FastAPI backend (birleşik tarama motorları, radar güçlendirme katmanı, outcome journal, OCO/SL-TP emir yolu, WhatsApp/WebPush bildirim). Migration'lar (001–013) ilk açılışta otomatik kurulur. |
+| `frontend/` | **Scalper Intelligent** arayüzü: birleşik aday taraması, favori fiyat bandı, 1/2/4 panel grafik, emir defteri (DOM), SL/TP-OCO koruma paneli, açık emirler, alarmlar, portföy analitiği, işlem günlüğü, CSV dışa aktarma, klavye kısayolları. **basePath YOK** — kökte servis edilir. |
+| `nginx/` | Hardened gateway: rate limit'ler, WebSocket koruması (limit_conn + 24s timeout), immutable statik cache, güvenlik başlıkları, bot istek engeli. |
+| `whatsapp-bridge/` | Baileys WhatsApp köprüsü (varsayılan kapalı). |
+| `docker-compose.yaml` | Bağımsız stack tanımı — repo kökü DOĞRUDAN stack'tir. |
+| `.env.example` | Secret şablonu → `.env` olarak doldurun (ASLA commit etmeyin). |
 
-## Kritik farklar (eski stack'e göre)
+## Optimizasyonlar (2026-10-14)
 
-1. **Temiz veritabanı**: `scalpernew` DB'si boş başlar; migration'lar (013 dahil)
-   ilk açılışta otomatik kurulur. Eski veri eski stack'te kalır.
-2. **basePath yok**: `NEXT_BASE_PATH=""` → arayüz `https://scalpernew.erkanerdem.online/`
-   kökünde; WS zaten kök `/ws`'e bağlanır (basePath WS sorunu burada doğmaz).
-3. **İzolasyon**: servis adları (`backend`, `frontend`) compose proje adı
-   `scalpernew` altında kendi ağındadır; konteyner adları `scalpernew-*` öneklidir.
-   Eski stack'in `backend` servisiyle DNS çakışması IMKANSIZDIR.
-4. **CORS** `https://scalpernew.erkanerdem.online`'a ayarlı.
+- Backend: `uvloop` event loop + `httptools` HTTP ayrıştırıcı, erişim logu gateway'e bırakıldı.
+- Postgres: 1G bütçeye göre ayarlı — `shared_buffers=256MB`, `work_mem=8MB`, `wal_compression=on`.
+- Frontend: 512MB cap + Node heap tavanı (`--max-old-space-size=384`).
+- Gateway: 256MB cap / 0.5 CPU.
+- Toplam gerçek kullanım ~2 GB; tavanlar ~4.3 GB.
 
 ## Coolify ile deploy (önerilen)
 
-1. Coolify → New Resource → **Docker Compose** → repo: bu repo, **Compose file path:**
-   `./scalpernew/docker-compose.yaml`
+1. Coolify → New Resource → **Docker Compose** → repo: `Optimus825482/scalpernew`,
+   **Compose file path:** `./docker-compose.yaml`
 2. Environment Variables'a `.env.example` içindeki ZORUNLU alanları gir:
    `POSTGRES_PASSWORD`, `SCALPER_ADMIN_PASSWORD`, `SCALPER_SESSION_SECRET`,
-   `LLM_ENCRYPTION_KEY` (örnek üretim komutları `.env.example` içinde).
+   `LLM_ENCRYPTION_KEY` (üretim komutları `.env.example` içinde).
 3. Domain alanına `scalpernew.erkanerdem.online` yaz (TLS'i Coolify/Traefik sağlar;
    DNS'te bu alt alan adı sunucu IP'sine A kaydı olarak ekli olmalı).
 4. Deploy. Backend sağlıklı olduktan sonra arayüz kökte açılır.
@@ -41,9 +38,9 @@ hiçbir kaynak paylaşmaz; aynı sunucuda yan yana çalışabilir.
 ## Manuel deploy (VPS'te)
 
 ```bash
-git clone <repo> && cd <repo>
-cp scalpernew/.env.example scalpernew/.env   # doldur
-docker compose -f scalpernew/docker-compose.yaml -p scalpernew up -d --build
+git clone https://github.com/Optimus825482/scalpernew.git && cd scalpernew
+cp .env.example .env   # doldur
+docker compose up -d --build
 ```
 
 (DNS: `scalpernew.erkanerdem.online` → sunucu IP; TLS için ayrıca Traefik/Caddy
@@ -52,19 +49,13 @@ yapılandırması gerekir — Coolify bunu otomatik yapar.)
 ## Doğrulama
 
 ```bash
-docker compose -f scalpernew/docker-compose.yaml -p scalpernew ps
+docker compose ps
 docker logs scalpernew-backend --tail 100      # migration + startup logları
 docker logs scalpernew-gateway --tail 50
 curl -s https://scalpernew.erkanerdem.online/health
 ```
 
-## ECONNRESET teşhisi (eski stack'ten bağımsız)
-
-Eski stack'teki `Failed to proxy http://backend:8004 → ECONNRESET` sorununun
-kaynağı büyük olasılıkla eski backend konteynerinin çökme/donma döngüsüdür; bu
-stack'e KOPYAYLA GEÇMEZse (temiz DB + fresh başlangıçla geçmesi muhtemel),
-yeni stack'te `docker logs scalpernew-backend` çıktısı kök nedeni temiz gösterir.
-Aşağıdaki komutlar her iki durumda da tanı için altın değerindedir:
+## Tanı komutları
 
 ```bash
 docker inspect --format '{{.State.Health.Status}} OOM={{.State.OOMKilled}} restarts={{.RestartCount}}' scalpernew-backend
