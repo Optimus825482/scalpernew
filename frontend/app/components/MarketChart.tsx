@@ -160,8 +160,14 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
   const socketStatus = useLiveStatus();
   const socketStatusRef = useRef(socketStatus);
   const tickAtRef = useRef<number | null>(tickAt);
+  // Yanıt-tazeliği: sembol/interval değişince geç kalan ESKI isteğin yanıtını
+  // state'e yazmayı engeller (farklı sembolün mumlarının karışması → grafikte
+  // iki fiyat seviyesinin birleşmesi hatası).
+  const requestKeyRef = useRef("");
+  const restAtRef = useRef<number | null>(restAt);
   socketStatusRef.current = socketStatus;
   tickAtRef.current = tickAt;
+  restAtRef.current = restAt;
 
   useEffect(() => { setSymbol(normalizeSymbol(initialSymbol)); }, [initialSymbol]);
   useEffect(() => { setInterval(INTERVALS.includes(initialInterval as typeof INTERVALS[number]) ? initialInterval : "5m"); }, [initialInterval]);
@@ -173,10 +179,12 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
   }, [config, configStorageKey, loadedConfigKey]);
 
   const load = useCallback(async () => {
+    const requestKey = `${symbol}|${interval}`;
     try {
       const response = await apiRequest(`/api/market-klines/${encodeURIComponent(symbol)}?interval=${interval}&limit=500`, { cache: "no-store" });
       if (!response.ok) throw new Error(`Grafik verisi alınamadı (${response.status})`);
       const body = await response.json();
+      if (requestKeyRef.current !== requestKey) return; // bu istek eskidi; sonucu düşür
       const rows = Array.isArray(body?.candles) ? body.candles.map(readCandle).filter(Boolean) as Candle[] : [];
       if (rows.length) setCandles((current) => {
         const live = current.filter((candle) => tickAtRef.current != null && candle.time === current[current.length - 1]?.time && Date.now() - tickAtRef.current < 60_000);
@@ -188,7 +196,15 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
       setError(rows.length ? "" : "Bu sembol ve zaman aralığı için mum verisi yok.");
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Grafik verisi alınamadı"); }
   }, [interval, symbol]);
-  useEffect(() => { setTickAt(null); void load(); }, [load]);
+  useEffect(() => {
+    // Sembol/interval değişiminde eski sembolün mumları MUTLAKA temizlenir;
+    // aksi halde WS'ten gelen yeni sembolün mumları eski verinin SONUNA
+    // eklenir ve tek grafikte iki sembolün fiyatı birleşir.
+    requestKeyRef.current = `${symbol}|${interval}`;
+    setTickAt(null);
+    setCandles([]);
+    void load();
+  }, [load]);
   useLiveMessages((message) => {
     if (message.type !== "kline" || !message.data || typeof message.data !== "object") return;
     const bar = message.data as Record<string, unknown>;
@@ -200,7 +216,13 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
     setError("");
     setCandles((current) => {
       const index = current.findIndex((row) => row.time === candle.time);
-      if (index < 0) return [...current.slice(-499), candle];
+      if (index < 0) {
+        // Sıra koruması: zamanı son bardan eski/geç gelen mum dizi başına
+        // eklenmez (lightweight-charts sıralı veri ister; karışık seri → bozuk grafik).
+        const lastTime = current[current.length - 1]?.time ?? 0;
+        if (candle.time <= lastTime) return current;
+        return [...current.slice(-499), candle];
+      }
       const next = current.slice(); next[index] = candle; return next;
     });
   });
@@ -209,7 +231,11 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
       // Sekme arka plandayken saat/tick durumunu güncelleme ve REST yükü yapma.
       if (typeof document !== "undefined" && document.hidden) return;
       setClock(Date.now());
-      if (socketStatusRef.current !== "open" || !tickAtRef.current || Date.now() - tickAtRef.current > 30_000) void load();
+      const stale = socketStatusRef.current !== "open" || !tickAtRef.current || Date.now() - tickAtRef.current > 30_000;
+      // WS tick'leri taze olsa bile en fazla ~60 sn'de bir REST ile geçmişi
+      // tazele: ilk yüklemesi başarısız olan panel sonsuza dek bozuk/eski
+      // veriyle kalmasın (tick tazeliği yüklemeyi sonsuza dek engelliyordu).
+      if (stale || Date.now() - (restAtRef.current ?? 0) > 60_000) void load();
     }, 20_000);
     return () => window.clearInterval(timer);
   }, [load]);
