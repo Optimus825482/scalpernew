@@ -5,6 +5,7 @@ import Link from "next/link";
 import { formatPct, formatPrice } from "../lib/format";
 import type { OpportunityView } from "../lib/opportunity";
 import { useWatchlist } from "../lib/watchlist";
+import { usePriceWatch } from "../lib/priceWatch";
 import { SourceBadges } from "./ui";
 import MarketChart from "./MarketChart";
 
@@ -29,8 +30,10 @@ function OpportunityCard({
   const [chartOpen, setChartOpen] = useState(false);
   const [quickMenuOpen, setQuickMenuOpen] = useState(false);
   const { isFavorite, toggleFavorite } = useWatchlist();
+  const { watch, unwatch, isWatched } = usePriceWatch();
 
   const favorited = isFavorite(item.symbol);
+  const watched = isWatched(item.symbol);
   const interval = chartInterval(horizonMinutes);
   const chartUrl = `/grafik?symbol=${encodeURIComponent(item.symbol)}&interval=${interval}`;
 
@@ -72,14 +75,14 @@ function OpportunityCard({
                   {horizonMinutes} DK
                 </span>
               )}
-              {/* FAVORİ YILDIZ BUTONU */}
+              {/* FAVORİ YILDIZ BUTONU (büyük ve dokunuş dostu) */}
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   toggleFavorite(item.symbol);
                 }}
-                className={`grid h-6 w-6 place-items-center rounded-md text-xs transition-colors ${
+                className={`grid h-8 w-8 place-items-center rounded-md text-xl leading-none transition-colors ${
                   favorited
                     ? "bg-amber-50 text-amber-500 hover:bg-amber-100"
                     : "text-ink-400 hover:bg-canvas hover:text-amber-500"
@@ -223,6 +226,24 @@ function OpportunityCard({
               ▥ Grafik
             </button>
           </div>
+
+          {/* İZLEMEYE AL: o anki fiyattan izleme başlatır/bırakır; izlenenler ana sayfa üst şeridinde % değişimle izlenir */}
+          <button
+            type="button"
+            onClick={() => {
+              if (watched) unwatch(item.symbol);
+              else if (price != null) watch(item.symbol, price);
+            }}
+            disabled={!watched && price == null}
+            className={`inline-flex min-h-[2.25rem] w-full items-center justify-center gap-1.5 rounded-lg border px-2 text-xs font-semibold transition-colors ${
+              watched
+                ? "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                : "border-line bg-white text-ink-700 hover:border-emerald-400 hover:text-emerald-700"
+            } disabled:opacity-50`}
+            title={watched ? "İzlemeden çıkar" : price != null ? `${formatPrice(price)} fiyatından izlemeye al` : "Fiyat yok"}
+          >
+            {watched ? "✓ İzlemede · Bırak" : "◎ İzlemeye Al"}
+          </button>
         </div>
       </article>
 

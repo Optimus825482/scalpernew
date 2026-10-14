@@ -10,6 +10,7 @@ import { fmtDateTime } from "./lib/format";
 import type { ManualUnifiedScanResponse, UnifiedScanResponse, UnifiedScanRun } from "./lib/types";
 import { Badge, Card, SectionHeader, Tabs } from "./components/ui";
 import PortfolioStrip from "./components/PortfolioStrip";
+import WatchStrip from "./components/WatchStrip";
 import OpportunityCard from "./components/OpportunityCard";
 import ActiveTradesTable from "./components/ActiveTradesTable";
 import OrderPanel from "./components/OrderPanel";
@@ -46,13 +47,14 @@ export default function Home() {
   const latestRunAt = Number(latestRun?.completed_at ?? latestRun?.generated_at ?? 0);
   const run = manualRun && Number(manualRun.completed_at || 0) >= latestRunAt ? manualRun : latestRun;
   const views = useMemo(() => {
+    // Sembol bazında TEKİL: aynı sembol 5 dk ve 15 dk ufuklarında iki kart
+    // olarak çıkıyordu; en güçlü ufuk temsil eder, diğerleri elenir.
     const unique = new Map<string, OpportunityView>();
     for (const candidate of run?.candidates ?? []) {
       const view = toOpportunityView(candidate);
       if (!view.symbol) continue;
-      const key = `${view.symbol}:${view.horizonMinutes ?? "unknown"}`;
-      const existing = unique.get(key);
-      if (!existing || (view.strength ?? 0) > (existing.strength ?? 0)) unique.set(key, view);
+      const existing = unique.get(view.symbol);
+      if (!existing || (view.strength ?? 0) > (existing.strength ?? 0)) unique.set(view.symbol, view);
     }
     return Array.from(unique.values()).sort((left, right) => {
       const favoriteOrder = Number(isFavorite(right.symbol)) - Number(isFavorite(left.symbol));
@@ -68,7 +70,7 @@ export default function Home() {
   }, [views, horizon, isFavorite]);
 
   const selectedView = useMemo(
-    () => filtered.find((item) => `${item.symbol}:${item.horizonMinutes ?? "unknown"}` === selected || item.symbol === selected) ?? filtered[0] ?? null,
+    () => filtered.find((item) => item.symbol === selected) ?? filtered[0] ?? null,
     [filtered, selected],
   );
 
@@ -77,14 +79,14 @@ export default function Home() {
   const loadingFirst = scan.loading && !run;
 
   useEffect(() => {
-    if (selected && !filtered.some((item) => `${item.symbol}:${item.horizonMinutes ?? "unknown"}` === selected || item.symbol === selected)) {
+    if (selected && !filtered.some((item) => item.symbol === selected)) {
       setSelected(null);
     }
   }, [filtered, selected]);
 
   // KLAVYE KISAYOLLARI (TradingView tarzı): j/k aday gezinme, Enter panele aktarım,
   // f favori, m manuel tarama, ? yardım. Metin alanlarında devre dışıdır.
-  const selectedKey = selectedView ? `${selectedView.symbol}:${selectedView.horizonMinutes ?? "unknown"}` : null;
+  const selectedKey = selectedView ? selectedView.symbol : null;
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
@@ -94,10 +96,10 @@ export default function Home() {
       if (key === "Escape") { setShowShortcuts(false); return; }
       if (key === "m" && !scanBusy) { event.preventDefault(); handleManualScan(); return; }
       if (!filtered.length) return;
-      const index = selectedKey ? filtered.findIndex((item) => `${item.symbol}:${item.horizonMinutes ?? "unknown"}` === selectedKey) : -1;
+      const index = selectedKey ? filtered.findIndex((item) => item.symbol === selectedKey) : -1;
       const moveTo = (next: number) => {
         const target = filtered[Math.max(0, Math.min(filtered.length - 1, next))];
-        if (target) { setSelected(`${target.symbol}:${target.horizonMinutes ?? "unknown"}`); setQuickAmount(null); }
+        if (target) { setSelected(target.symbol); setQuickAmount(null); }
       };
       if (key === "j" || key === "ArrowDown") { event.preventDefault(); moveTo(index + 1); }
       else if (key === "k" || key === "ArrowUp") { event.preventDefault(); moveTo(index - 1); }
@@ -153,6 +155,8 @@ export default function Home() {
 
       <PortfolioStrip />
 
+      <WatchStrip />
+
       {scan.error && !run && (
         <div className="odak-card border-loss/30 bg-loss-soft/50 p-3 text-sm text-loss" role="alert">
           Birleşik tarama verisi alınamadı: {scan.error}
@@ -188,7 +192,7 @@ export default function Home() {
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
         <Card className="p-4 sm:p-5">
           <SectionHeader
-            eyebrow="Adaylar · Kaynak uzlaşısı · Ufuk bazında tekil kayıtlar"
+            eyebrow="Adaylar · Kaynak uzlaşısı · Sembol bazında tekil kayıtlar"
             title={
               <span className="inline-flex items-center gap-2">
                 Yükseliş Adayları <Badge tone="gain">{filtered.length} ADAY</Badge>
@@ -220,16 +224,16 @@ export default function Home() {
             <div className="mt-4 grid gap-3.5 sm:grid-cols-2 xl:grid-cols-3">
               {filtered.slice(0, 12).map((item, index) => (
                 <OpportunityCard
-                  key={`${item.symbol}:${item.horizonMinutes ?? "unknown"}`}
+                  key={item.symbol}
                   rank={index + 1}
                   item={item}
-                  selected={selectedView?.symbol === item.symbol && selectedView?.horizonMinutes === item.horizonMinutes}
+                  selected={selectedView?.symbol === item.symbol}
                   onSelect={() => {
-                    setSelected(`${item.symbol}:${item.horizonMinutes ?? "unknown"}`);
+                    setSelected(item.symbol);
                     setQuickAmount(null);
                   }}
                   onQuickBuy={(symbol, amount) => {
-                    setSelected(`${symbol}:${item.horizonMinutes ?? "unknown"}`);
+                    setSelected(symbol);
                     // Tutar verilmediyse panelin kendi tutarı korunur (null = override yok).
                     setQuickAmount(amount ?? null);
                   }}
@@ -237,7 +241,7 @@ export default function Home() {
               ))}
             </div>
           )}
-          {run && <p className="mt-3 text-[10px] text-ink-400">Sürüm {run.algorithm_version ?? "combined-v1"} · farklı ufuklardaki aynı semboller ayrı adaydır.</p>}
+          {run && <p className="mt-3 text-[10px] text-ink-400">Sürüm {run.algorithm_version ?? "combined-v1"} · her sembol yalnızca en güçlü ufkuyla bir kez listelenir.</p>}
         </Card>
 
         <div id="islem-paneli" className="scroll-mt-24 lg:sticky lg:top-20 lg:self-start">
