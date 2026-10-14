@@ -92,6 +92,8 @@ _loop_task = None
 _scan_lock = asyncio.Lock()
 _combined_scan_lock = asyncio.Lock()
 _unified_scan_cache: dict = {"generated_at": 0.0, "candidates": []}
+# /api/unified-scan/latest için arka plan tazeleme görevi (tek uçuş).
+_unified_scan_refresh_task: asyncio.Task | None = None
 
 # State lock: _monitoring_state ve _deferred_push concurrent okuma/yazma
 # yarisini onler (2026-09-07).
@@ -4416,7 +4418,13 @@ async def daily_rising_manual_scan(request: Request = None):
 
 @router.get("/api/unified-scan/latest")
 async def unified_scan_latest(request: Request):
-    """Oturum sahibinin en son public-data birleşik tarama anlık görüntüsünü döndür."""
+    """Oturum sahibinin en son public-data birleşik tarama anlık görüntüsünü döndür.
+
+    Tarama İSTEĞİN İÇİNDE koşturulmaz: ağır tarama (tüm semboller için
+    velocity/squeeze/snapback taramaları) 30 sn'yi aşabildiği için istek
+    zaman aşımına düşüyordu. Bunun yerine her durumda cache ANINDA döner;
+    cache bayatsa tazeleme arka plan görevine devredilir (tek uçuş, kilitli).
+    """
     from app import security
     user = security.request_user(
         request.headers, request.cookies,
@@ -4424,21 +4432,41 @@ async def unified_scan_latest(request: Request):
     )
     if not user:
         raise HTTPException(status_code=401, detail="Kimlik doğrulama gerekli")
-    now = time.time()
     generated_at = float(_unified_scan_cache.get("generated_at") or 0)
     candidates = _unified_scan_cache.get("candidates") or []
-    if not generated_at or now - generated_at > 20:
-        async with _combined_scan_lock:
-            generated_at = float(_unified_scan_cache.get("generated_at") or 0)
-            if not generated_at or time.time() - generated_at > 20:
-                candidates = await _combined_scan_rows()
-                generated_at = time.time()
-                _unified_scan_cache.update(generated_at=generated_at, candidates=candidates)
-            else:
-                candidates = _unified_scan_cache.get("candidates") or []
+    if not generated_at or time.time() - generated_at > 20:
+        _kick_unified_scan_refresh()
     return {"run": {"scan_id": None, "generated_at": generated_at,
                      "algorithm_version": "combined-v1", "candidates": candidates,
                      "count": len(candidates)}}
+
+
+async def _refresh_unified_scan_async() -> None:
+    """Birleşik taramayı arka planda çalıştırıp cache'i tazeler (hata yutar)."""
+    global _unified_scan_refresh_task
+    try:
+        async with _combined_scan_lock:
+            # Kilit sırasında başka bir yol (manuel tarama/diğer görev) tazelediyse
+            # tekrar tarama — çift taramayı önler.
+            if _unified_scan_cache.get("generated_at") and \
+                    time.time() - float(_unified_scan_cache["generated_at"]) <= 20:
+                return
+            candidates = await _combined_scan_rows()
+            _unified_scan_cache.update(generated_at=time.time(), candidates=candidates)
+    except Exception as exc:
+        logger.debug("arka plan birleşik taraması başarısız: %s", exc)
+    finally:
+        _unified_scan_refresh_task = None
+
+
+def _kick_unified_scan_refresh() -> None:
+    """Tazeleme görevi yoksa/bittiyse başlat (tek uçuş garantisi)."""
+    global _unified_scan_refresh_task
+    task = _unified_scan_refresh_task
+    if task is not None and not task.done():
+        return
+    _unified_scan_refresh_task = asyncio.get_running_loop().create_task(
+        _refresh_unified_scan_async())
 
 
 @router.get("/api/unified-scan/history")
