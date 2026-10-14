@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { useLiveMessages } from "../lib/liveSocket";
 import { sound } from "../lib/sound";
 import { formatPct, formatPrice } from "../lib/format";
@@ -22,7 +21,6 @@ const DIALOG_TTL_MS = 12_000;
 export default function LiveNotificationToast({ onSelectSymbol }: { onSelectSymbol?: (symbol: string) => void }) {
   const [toasts, setToasts] = useState<SignalToast[]>([]);
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const router = useRouter();
 
   // Ses ayarını localStorage veya tercihlerden al
   useEffect(() => {
@@ -90,7 +88,8 @@ export default function LiveNotificationToast({ onSelectSymbol }: { onSelectSymb
   const queuedCount = toasts.length - 1;
   const goChart = () => {
     removeToast(dialog.id);
-    router.push(`/grafik?symbol=${encodeURIComponent(dialog.symbol)}`);
+    // Next 16 router'ı bu uygulamada no-op; tam sayfa navigasyonu kullan.
+    window.location.assign(`/grafik?symbol=${encodeURIComponent(dialog.symbol)}`);
   };
   const openTrade = () => {
     onSelectSymbol?.(dialog.symbol);

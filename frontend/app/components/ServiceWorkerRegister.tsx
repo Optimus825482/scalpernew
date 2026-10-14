@@ -11,6 +11,16 @@ export default function ServiceWorkerRegister() {
     if (process.env.NODE_ENV !== "production") return;
     if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
 
+    // Teşhis/çıkış kapısı: ?nosw=1 ile SW tamamen devre dışı bırakılır ve
+    // mevcut kayıt silinir (SW sorun yaşandığında tek satırla kaçış).
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("nosw")) {
+      navigator.serviceWorker.getRegistrations().then((regs) => {
+        for (const r of regs) void r.unregister();
+      }).catch(() => {});
+      return;
+    }
+
     const { protocol, hostname } = window.location;
     const isSecure = protocol === "https:" || hostname === "localhost" || hostname === "127.0.0.1";
     if (!isSecure) return;

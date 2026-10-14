@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import AppLink from "./AppLink";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth } from "../lib/auth";
@@ -58,7 +58,7 @@ export default function TopNav() {
       <div className="mx-auto flex h-16 max-w-[1600px] items-center justify-between gap-3 px-4 sm:px-6">
         {/* Sol Logo ve Başlık */}
         <div className="flex items-center gap-4">
-          <Link href="/" className="flex shrink-0 items-center gap-2.5">
+          <AppLink href="/" className="flex shrink-0 items-center gap-2.5">
             <img
               src="/icons/icon-512.png"
               alt="Scalper Intelligent"
@@ -72,14 +72,14 @@ export default function TopNav() {
                 Unified Signal Engine
               </span>
             </div>
-          </Link>
+          </AppLink>
 
           {/* Menü Sekmeleri (mobilde kaydırılabilir, kaydırma çubuğu gizli) */}
           <nav className="odak-ticker-scroll flex min-w-0 flex-1 items-center gap-1 overflow-x-auto sm:flex-none" aria-label="Ana navigasyon">
             {NAV.filter((item) => !item.adminOnly || isAdmin).map((item) => {
               const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
               return (
-                <Link
+                <AppLink
                   key={item.href}
                   href={item.href}
                   aria-current={active ? "page" : undefined}
@@ -90,7 +90,7 @@ export default function TopNav() {
                   }`}
                 >
                   {item.label}
-                </Link>
+                </AppLink>
               );
             })}
           </nav>
@@ -100,14 +100,14 @@ export default function TopNav() {
         <div className="flex items-center gap-2 sm:gap-3">
           {/* Favoriler Rozeti */}
           {favorites.length > 0 && (
-            <Link
+            <AppLink
               href="/?filter=favorites"
               className="hidden md:inline-flex items-center gap-1.5 rounded-lg border border-line bg-canvas/70 px-2.5 py-1 text-xs font-medium text-ink-700 hover:border-accent hover:text-accent transition-colors"
               title="Favorilerimi Göster"
             >
               <span className="text-amber-500 font-bold">★</span>
               <span>{favorites.length} Favori</span>
-            </Link>
+            </AppLink>
           )}
 
           {/* Ses Bildirimi Butonu */}

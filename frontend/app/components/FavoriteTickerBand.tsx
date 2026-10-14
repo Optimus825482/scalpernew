@@ -20,15 +20,21 @@ export default function FavoriteTickerBand({ favorites }: Props) {
   const [directions, setDirections] = useState<Record<string, "up" | "down" | "flat">>({});
   const previousTickers = useRef<FavoriteTicker[]>([]);
 
+  // KRİTİK: favorites her render'da yeni dizi olarak geliyorsa effect sonsuz
+  // döngüye girer (fetch → setState → render → yeni dizi → effect...). Bu
+  // döngü ana thread'i kilitler; menü tıklamaları ve navigasyon ölür.
+  // Bağımlılığı kararlı bir string anahtara bağlıyoruz.
+  const favKey = favorites.join(",");
+
   useEffect(() => {
-    if (favorites.length === 0) {
+    if (favKey.length === 0) {
       previousTickers.current = [];
       setTickers([]);
       setCheckedAt(null);
       return;
     }
     let active = true;
-    const symbols = Array.from(new Set(favorites.map((symbol) => symbol.toUpperCase()))).slice(0, 50);
+    const symbols = Array.from(new Set(favKey.split(",").map((symbol) => symbol.toUpperCase()))).slice(0, 50);
     const query = new URLSearchParams({ symbols: symbols.join(",") });
 
     const refresh = async () => {
@@ -65,7 +71,7 @@ export default function FavoriteTickerBand({ favorites }: Props) {
       active = false;
       window.clearInterval(timer);
     };
-  }, [favorites]);
+  }, [favKey]);
 
   if (favorites.length === 0) return null;
   const bySymbol = new Map(tickers.map((ticker) => [ticker.symbol, ticker]));

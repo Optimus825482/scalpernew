@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import AppLink from "./AppLink";
 import { usePathname } from "next/navigation";
 import { usePoll } from "../lib/hooks";
 import { useAuth } from "../lib/auth";
@@ -33,11 +33,11 @@ export default function SideNav() {
           const hrefPath = item.href.split("#")[0];
           const selected = hrefPath === "/" ? pathname === "/" : pathname.startsWith(hrefPath);
           return (
-            <Link key={item.label} href={item.href} aria-current={selected ? "page" : undefined}
+            <AppLink key={item.label} href={item.href} aria-current={selected ? "page" : undefined}
               className={`odak-side-link ${selected ? "odak-side-link-active" : ""}`}>
               <span aria-hidden="true" className="w-6 text-center text-lg">{item.icon}</span>
               <span>{item.label}</span>
-            </Link>
+            </AppLink>
           );
         })}
       </nav>

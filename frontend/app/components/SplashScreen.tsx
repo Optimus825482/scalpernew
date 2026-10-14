@@ -9,8 +9,8 @@ import {
 } from "react";
 
 const SESSION_KEY = "scalper-splash-shown";
-const MIN_DISPLAY_MS = 1400;
-const MAX_DISPLAY_MS = 3000;
+const MIN_DISPLAY_MS = 3000;
+const MAX_DISPLAY_MS = 4500;
 
 const STATUS_TEXTS = [
   "Bağlantı kuruluyor…",
