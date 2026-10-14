@@ -1,0 +1,21 @@
+- generic [ref=e1]:
+  - generic [ref=e4]:
+    - generic [ref=e8]:
+      - heading [level=1] [ref=e9]: SCALPER
+      - paragraph [ref=e10]: INTE
+    - paragraph [ref=e14]: Bağlantı kuruluyor…
+  - main [ref=e15]:
+    - generic [ref=e16]:
+      - img "Scalper Intelligent" [ref=e17]
+      - heading "Scalper Intelligent Trade Systems" [level=1] [ref=e18]
+      - paragraph [ref=e19]: PANEL
+      - generic [ref=e20]:
+        - generic [ref=e21]:
+          - text: Kullanıcı adı
+          - textbox "Kullanıcı adı" [active] [ref=e22]:
+            - /placeholder: admin
+        - generic [ref=e23]:
+          - text: Parola
+          - textbox "Parola" [ref=e24]
+        - button "Oturum aç" [ref=e25] [cursor=pointer]
+  - alert [ref=e26]
