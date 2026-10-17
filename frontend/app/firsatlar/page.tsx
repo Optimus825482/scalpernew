@@ -5,7 +5,7 @@ import AppLink from "../components/AppLink";
 import { apiRequest } from "../lib/api";
 import { usePoll } from "../lib/hooks";
 import { formatPct, fmtDateTime, formatPrice } from "../lib/format";
-import { elapsedLabel, signalBasePrice, signalSeenAt, useLivePrices } from "../lib/livePrices";
+import { elapsedLabel, signalBasePrice, signalPeakPrice, signalSeenAt, useLivePrices } from "../lib/livePrices";
 import { baseAsset, toOpportunityView } from "../lib/opportunity";
 import { sourceLabel } from "../lib/sources";
 import { useWatchlist } from "../lib/watchlist";
@@ -234,8 +234,9 @@ function LiveFeed({
               const base = signalBasePrice(view.symbol, view.price) ?? view.price;
               const livePct = base != null && shown != null && base > 0 ? ((shown - base) / base) * 100 : null;
               const targetPct = view.targetPct ?? view.potentialPct;
-              const targetPrice = view.ceilingPrice ?? view.potentialPrice ?? (base != null && targetPct != null ? base * (1 + targetPct / 100) : null);
-              const hit = targetPrice != null && shown != null && shown >= targetPrice;
+              const targetPrice = base != null && targetPct != null ? base * (1 + targetPct / 100) : null;
+              const peak = signalPeakPrice(view.symbol, shown) ?? shown;
+              const hit = targetPrice != null && peak != null && peak >= targetPrice;
               const seen = signalSeenAt(view.symbol, view.createdAt);
               return (
                 <tr key={`${view.symbol}-${view.horizonMinutes ?? 5}-${kind}-${i}`} className="border-t border-line hover:bg-slate-50/50">
@@ -674,8 +675,10 @@ function HistorySection({
             <tbody>
               {slice.map((n, i) => {
                 const srcs = (n.sources || []).map(sourceLabel).filter(Boolean);
-                const ok = String(n.status || "").includes("BAŞARILI");
-                const bad = String(n.status || "").includes("BAŞARISIZ");
+                const mfe = n.mfe_pct == null ? null : Number(n.mfe_pct);
+                const goal = Number(n.target_pct) || 0;
+                const reached = String(n.status || "").includes("BAŞARILI") || (mfe != null && goal > 0 && mfe >= goal);
+                const missed = !reached && (String(n.status || "").includes("BAŞARISIZ") || String(n.status || "").includes("ÖLÇÜLEMEDİ") || String(n.status || "").includes("KISMİ"));
                 const sym = String(n.symbol || "").toUpperCase();
                 const fav = isFavorite(sym);
 
@@ -728,8 +731,8 @@ function HistorySection({
                       {n.mfe_pct != null ? `+${Number(n.mfe_pct).toFixed(2)}%` : "—"}
                     </td>
                     <td className="py-2.5">
-                      <Badge tone={ok ? "gain" : bad ? "loss" : "warn"}>
-                        {ok ? "✓ HEDEFE ULAŞTI" : bad ? "✗ STOP / ZAMAN AŞIMI" : "BEKLİYOR"}
+                      <Badge tone={reached ? "gain" : missed ? "loss" : "warn"}>
+                        {reached ? "✓ HEDEFE ULAŞTI" : missed ? "✗ HEDEFE ULAŞMADI" : "BEKLİYOR"}
                       </Badge>
                     </td>
                   </tr>

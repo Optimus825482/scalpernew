@@ -2608,11 +2608,12 @@ def dynamic_target_pct(score: float, base_target_pct: float,
                 matched_threshold = min_score
                 target = max(target, pct)
 
-    # Net Kâr Tabanı: komisyon (%0.35) + spread maliyeti hedefe eklenir
-    spr = float(spread_pct) if (spread_pct is not None and float(spread_pct) > 0) else getattr(config, "DEFAULT_ESTIMATED_SPREAD_PCT", 0.65)
-    total_cost = round_trip_cost_pct() + spr
-    net_target = getattr(config, "SCALPING_NET_TARGET_PCT", 2.0)
-    net_profit_floor = net_target + total_cost  # örn: 2.0 + 0.35 + 0.65 = %3.00
+    # Net taban: komisyon çıktıktan sonra en az %2 kalır.
+    # Alış taker %0,1125 + hedef satış maker %0,0675 = %0,18.
+    # Brüt hedef en az %2,18 olur. Spread bu tabana eklenmez.
+    fee_pct = (float(config.COMMISSION_TAKER_PCT) + float(config.COMMISSION_MAKER_PCT)) * 100.0
+    net_target = float(getattr(config, "SCALPING_NET_TARGET_PCT", 2.0))
+    net_profit_floor = net_target + fee_pct
     target = max(target, net_profit_floor)
 
     # Sembol Oynaklık Potansiyeli (ATR): Yüksek volatilitede hedef genişler

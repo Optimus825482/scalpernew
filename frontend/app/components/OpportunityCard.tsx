@@ -6,7 +6,7 @@ import { formatPct, formatPrice } from "../lib/format";
 import type { OpportunityView } from "../lib/opportunity";
 import { useWatchlist } from "../lib/watchlist";
 import { usePriceWatch } from "../lib/priceWatch";
-import { elapsedLabel, signalBasePrice, signalSeenAt } from "../lib/livePrices";
+import { elapsedLabel, signalBasePrice, signalPeakPrice, signalSeenAt } from "../lib/livePrices";
 import { SourceBadges } from "./ui";
 import MarketChart from "./MarketChart";
 
@@ -35,6 +35,7 @@ function OpportunityCard({
   const [nowSec, setNowSec] = useState(() => Date.now() / 1000);
   const [seenAt, setSeenAt] = useState<number | null>(null);
   const [basePrice, setBasePrice] = useState<number | null>(null);
+  const [peakPrice, setPeakPrice] = useState<number | null>(null);
   const { isFavorite, toggleFavorite } = useWatchlist();
   const { entries, watch, unwatch, isWatched } = usePriceWatch();
 
@@ -50,10 +51,11 @@ function OpportunityCard({
     ? ((shownPrice - watchEntry.price) / watchEntry.price) * 100
     : null;
   const targetPct = item.targetPct ?? potentialPct;
-  const targetPrice = item.ceilingPrice
-    ?? item.potentialPrice
-    ?? (signalPrice != null && targetPct != null ? signalPrice * (1 + targetPct / 100) : null);
-  const targetHit = targetPrice != null && shownPrice != null && shownPrice >= targetPrice;
+  const targetPrice = signalPrice != null && targetPct != null
+    ? signalPrice * (1 + targetPct / 100)
+    : null;
+  const peak = Math.max(peakPrice ?? 0, shownPrice ?? 0);
+  const targetHit = targetPrice != null && peak >= targetPrice;
   const interval = chartInterval(horizonMinutes);
   const chartUrl = `/grafik?symbol=${encodeURIComponent(item.symbol)}&interval=${interval}`;
 
@@ -71,6 +73,10 @@ function OpportunityCard({
     setSeenAt(signalSeenAt(item.symbol, item.createdAt));
     setBasePrice(signalBasePrice(item.symbol, price));
   }, [item.symbol, item.createdAt, price]);
+
+  useEffect(() => {
+    setPeakPrice(signalPeakPrice(item.symbol, shownPrice ?? price));
+  }, [item.symbol, shownPrice, price]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNowSec(Date.now() / 1000), 15_000);

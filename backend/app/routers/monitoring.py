@@ -5505,8 +5505,12 @@ async def report_notifications(
         # #19: değerlendirme penceresi ufuk-duyarlı (radar ile AYNI kural).
         max_outcome_min = _outcome_window_minutes(horizon)
         window_closed = bool(detected_at and (now - detected_at) >= max_outcome_min * 60)
-        # M1/P0 (R3-04): TAMAMEN BAŞARILI YALNIZCA hedefe GERÇEKTEN dokunulduysa.
-        if candidate_status == "evaluated" and mfe_pct is not None:
+        # Tepe, kayıtlı hedefe değdiyse pencere kapanmasını bekleme.
+        # Aksi halde fiyat hedefi görmüş sinyal saatlerce BEKLİYOR kalır.
+        if mfe_pct is not None and target_pct > 0 and mfe_pct + 1e-9 >= target_pct:
+            status = "TAMAMEN BAŞARILI"
+            touched = True
+        elif candidate_status == "evaluated" and mfe_pct is not None:
             if touched:
                 status = "TAMAMEN BAŞARILI"
             elif mfe_pct > 0:

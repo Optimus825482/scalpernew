@@ -80,6 +80,28 @@ export function signalBasePrice(symbol: string, price: number | null): number | 
   return price;
 }
 
+/** Bildirimden sonraki en yüksek görülen fiyat. Geri çekilse de hedef tutmuş sayılır. */
+export function signalPeakPrice(symbol: string, price: number | null): number | null {
+  const key = `odak_signal_peak:${symbol}`;
+  let stored = 0;
+  try {
+    stored = Number(sessionStorage.getItem(key) || 0);
+  } catch {
+    stored = 0;
+  }
+  const seen = price != null && Number.isFinite(price) && price > 0 ? price : 0;
+  const next = Math.max(stored, seen);
+  if (!(next > 0)) return null;
+  if (next !== stored) {
+    try {
+      sessionStorage.setItem(key, String(next));
+    } catch {
+      // Depo kapalıysa bu turdaki zirve yine döner.
+    }
+  }
+  return next;
+}
+
 export function elapsedLabel(seconds: number): string {
   const sec = Math.max(0, Math.floor(seconds));
   if (sec < 60) return `${sec} sn`;
