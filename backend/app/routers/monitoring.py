@@ -4315,6 +4315,11 @@ async def _refresh_unified_scan_async() -> None:
                 return
             candidates = await _combined_scan_rows()
             _unified_scan_cache.update(generated_at=time.time(), candidates=candidates)
+            try:
+                from app.routers.auto_paper import open_from_scan_candidates
+                await open_from_scan_candidates(candidates)
+            except Exception as exc:
+                logger.debug("tarama sonrası paper açılışı: %s", exc)
     except Exception as exc:
         logger.debug("arka plan birleşik taraması başarısız: %s", exc)
     finally:

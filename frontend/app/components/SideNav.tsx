@@ -14,6 +14,7 @@ const ITEMS = [
   { href: "/emirler", label: "Açık Emirler", icon: "⧗" },
   { href: "/gecmis-islemler", label: "Geçmiş İşlemler", icon: "◷" },
   { href: "/alarmlar", label: "Fiyat Alarmları", icon: "◔" },
+  { href: "/otonom-paper", label: "Otonom Paper", icon: "▤", adminOnly: true },
   { href: "/kullanicilar", label: "Kullanıcı Yönetimi", icon: "☺", adminOnly: true },
   { href: "/ayarlar", label: "Ayarlar", icon: "⚙" },
 ];

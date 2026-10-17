@@ -627,7 +627,7 @@ IKI OTONOM YOLUN KAPI/OLCEK KARSILASTIRMASI (R3-08 — DOKUMANTASYON):
 
         # R3-06 (a/b): girişten önce LİKİDİTE + KORELASYON KÜME kapısı. order_value
         # burada hesaplanıp `_open_new_trade`'e iletilir (tek wallet okuması).
-        balance = await database.get_wallet_balance()
+        balance = await database.ensure_cash_wallet()
         balance_pct = float(settings.get("balance_pct", config.AUTO_PAPER_BALANCE_PCT_DEFAULT)) / 100.0
         order_value = balance * balance_pct
         gate = await _liquidity_cluster_gate(symbol, order_value, balance)
@@ -1502,16 +1502,69 @@ async def _broadcast_trade(data: dict):
         pass
 
 
+async def open_from_scan_candidates(candidates: list[dict]) -> int:
+    """Arka plan taramasındaki geçen adaylar için paper aç.
+
+    Elle "Piyasayı Tara" bu fonksiyonu çağırmaz. Skor panel ölçeğindedir
+    (0-100). Aynı sembolde açık işlem varsa try_open yalnız hedefi günceller.
+    Her turda en fazla 5 yeni deneme yapılır.
+    """
+    if not candidates:
+        return 0
+    settings = await get_auto_paper_settings()
+    if not settings.get("enabled", True):
+        return 0
+    min_score = float(settings.get("min_score", config.AUTO_PAPER_MIN_SCORE_DEFAULT))
+    ranked: list[tuple[float, dict]] = []
+    seen: set[str] = set()
+    for raw in candidates:
+        symbol = str(raw.get("symbol") or "").upper()
+        if not symbol or symbol in seen:
+            continue
+        try:
+            score = float(raw.get("scan_score") or raw.get("quality_score") or raw.get("panel_score") or 0)
+        except (TypeError, ValueError):
+            score = 0.0
+        if score < min_score:
+            continue
+        seen.add(symbol)
+        ranked.append((score, raw))
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    opened = 0
+    for score, raw in ranked[:5]:
+        symbol = str(raw.get("symbol") or "").upper()
+        try:
+            price = float(raw.get("price") or 0)
+        except (TypeError, ValueError):
+            price = 0.0
+        target = raw.get("target_pct") or raw.get("ceiling_pct") or raw.get("potential_pct")
+        envelope = {
+            "symbol": symbol,
+            "score": score,
+            "price": price,
+            "target_pct": target,
+            "horizon_minutes": raw.get("horizon_minutes") or 5,
+            "mode": "unified",
+            "passes": True,
+            "detected_at": time.time(),
+            "strategy": raw.get("strategy") or "combined",
+        }
+        result = await try_open_from_notification(envelope)
+        if isinstance(result, dict) and result.get("status") == "opened":
+            opened += 1
+            logger.info("auto_paper tarama girişi: %s skor %.1f", symbol, score)
+    return opened
+
+
 # ---------------------------------------------------------------------------
 # Settings API
 # ---------------------------------------------------------------------------
 async def get_default_settings() -> dict:
     return {
-        # 2026-10-14 (Erkan kararı): otonom paper trade VARSAYILAN KAPALI.
-        # Bu platformda yalnızca manuel kullanıcı emirleri isteniyor; motor
-        # ancak ayarlardan (`PUT /api/auto-paper/settings {"enabled": true}`)
-        # açıkça etkinleştirilirse sinyalleri işler.
-        "enabled": False,
+        # 2026-10-17 (Erkan kararı): sistem sinyali otonom paper açar.
+        # Başlangıç cüzdanı 10.000 TL; her alım serbest nakdin %30'u.
+        # Komisyon açılış ve kapanışta düşülür. Elle tarama emir açmaz.
+        "enabled": True,
         "min_score": config.AUTO_PAPER_MIN_SCORE_DEFAULT,
         "balance_pct": config.AUTO_PAPER_BALANCE_PCT_DEFAULT,
         "stop_loss_pct": config.AUTO_PAPER_SL_PCT_DEFAULT,
@@ -1760,9 +1813,13 @@ async def get_stats_endpoint(request: Request, day: str | None = None, include_a
     stats = await database.get_auto_paper_stats(
         day=day, ignore_reports_baseline=include_archived)
     reset_at = await database.get_reset_cutoff()
+    cash = await database.ensure_cash_wallet()
     return {
         "paper_only": True,
         "day": day or "today",
+        "cash_try": round(cash, 2),
+        "initial_try": config.INITIAL_BALANCE_TRY,
+        "balance_pct": float((await get_auto_paper_settings()).get("balance_pct") or 30),
         "stats": stats,
         "reset_at": reset_at,
         "include_archived": include_archived,
@@ -1823,6 +1880,29 @@ def reset_state():
         # bağlamda (ör. birim testi) atlanır — bir sonraki kapanış zaten güncel
         # (boş) haritayı yazar.
         loop.create_task(_persist_cooldowns())
+
+
+async def _apply_autonomous_book_once() -> None:
+    """İlk çalışmada otonom defteri aç: 10.000 TL taban, alım serbest nakdin %30'u.
+
+    `book_policy` yazıldıktan sonra admin kapatırsa veya oranı değiştirirse
+    bir sonraki açılış onu geri çevirmez.
+    """
+    try:
+        raw = await database.get_llm_setting("auto_paper_settings", "{}")
+        settings = json.loads(raw or "{}")
+        if not isinstance(settings, dict):
+            settings = {}
+        if settings.get("book_policy") == "10k-30":
+            return
+        settings["enabled"] = True
+        settings["balance_pct"] = 30.0
+        settings["book_policy"] = "10k-30"
+        await database.set_llm_setting("auto_paper_settings", json.dumps(settings))
+        await database.ensure_cash_wallet()
+        logger.info("otonom paper defteri açıldı: 10.000 TL, alım serbest nakdin %%30'u")
+    except Exception as exc:
+        logger.warning("otonom paper defteri ayarlanamadı: %s", exc)
 
 
 async def _migrate_bad_settings_once() -> None:
@@ -1891,6 +1971,7 @@ def start_auto_paper_loop() -> bool:
     # (süpervizör görevi gibi arka planda; döngü ilk turunu 30 sn geciktirir,
     # bu arada restore tamamlanır).
     _start_background(restore_runtime_state, "auto-paper-state-restore")
+    _start_background(_apply_autonomous_book_once, "auto-paper-book-policy")
     # TEK-SEFERLİK ayar onarımı (2026-10-11): DB'deki kötü kayıtlı değerleri
     # (SL 1.5 / trig 1.8 / gap 0.6) veriye göre düzelt. İdempotent.
     _start_background(_migrate_bad_settings_once, "auto-paper-settings-repair")

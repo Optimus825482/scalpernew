@@ -660,6 +660,26 @@ async def set_reports_baseline(raw) -> float:
     await set_llm_setting(_REPORTS_BASELINE_KEY, text)
     return _parse_reports_baseline(text) if text else await get_reports_baseline()
 
+async def ensure_cash_wallet() -> float:
+    """Nakit satırı yoksa 10.000 TL ile aç. Var olan bakiyeye dokunmaz."""
+    def op(conn):
+        asset = config.CASH_ASSET
+        row = conn.execute("SELECT amount FROM virtual_wallet WHERE asset=?", (asset,)).fetchone()
+        if row and row[0] is not None:
+            return float(row[0])
+        conn.execute(
+            "INSERT INTO virtual_wallet(asset, amount) VALUES(?, ?) ON CONFLICT(asset) DO NOTHING",
+            (asset, config.INITIAL_BALANCE_TRY),
+        )
+        conn.conn.commit()
+        again = conn.execute("SELECT amount FROM virtual_wallet WHERE asset=?", (asset,)).fetchone()
+        if not again or again[0] is None:
+            return float(config.INITIAL_BALANCE_TRY)
+        return float(again[0])
+
+    return await _run_db(op)
+
+
 async def get_wallet_balance(asset=None):
     """Virtual wallet balance. Defaults to `config.CASH_ASSET` — the cash row
     this deployment actually keeps (TR→TRY). Legacy "USDT"
@@ -5413,6 +5433,23 @@ async def has_recent_monitoring_notification(symbol: str, within_sec: float) -> 
             (str(symbol).upper(), cutoff),
         ).fetchone()
         return row is not None
+    return await _run_db(op)
+
+
+async def list_symbol_signal_marks(symbol: str, limit: int = 40) -> list[dict]:
+    """Bir sembolün gönderilmiş bildirimleri: zaman, fiyat ve hedef.
+
+    Grafik işaretleri içindir. Rapor tabanı uygulanmaz; son kayıtlar döner.
+    """
+    def op(conn):
+        rows = conn.execute(
+            "SELECT id, detected_at, price, expected_price, target_pct, score, "
+            "outcome_status, outcome_at, horizon_minutes "
+            "FROM monitoring_notifications WHERE symbol=? "
+            "ORDER BY detected_at DESC LIMIT ?",
+            (str(symbol or "").upper(), max(1, min(int(limit), 80))),
+        ).fetchall()
+        return [dict(row) for row in rows]
     return await _run_db(op)
 
 

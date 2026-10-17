@@ -30,6 +30,43 @@ const DEFAULT_CONFIG: IndicatorConfig = {
 const normalizeSymbol = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, "");
 const formatReading = (value: number | null) => value == null ? "—" : value.toLocaleString("tr-TR", { maximumSignificantDigits: 6 });
 
+type SignalMark = {
+  id?: number;
+  detected_at?: number;
+  price?: number | null;
+  expected_price?: number | null;
+  target_pct?: number | null;
+  outcome_status?: string | null;
+  outcome_at?: number | null;
+};
+type ChartMarker = { time: UTCTimestamp; position: "aboveBar" | "belowBar"; color: string; shape: "arrowUp" | "arrowDown"; text: string };
+
+function epochSec(value: number | null | undefined): number {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return n > 1e12 ? Math.floor(n / 1000) : n;
+}
+
+function barAtOrBefore(candles: Candle[], ts: number): number | null {
+  const sec = epochSec(ts);
+  if (!sec || candles.length === 0) return null;
+  if (sec < candles[0].time) return null;
+  let chosen: number | null = null;
+  for (const candle of candles) {
+    if (candle.time <= sec) chosen = candle.time;
+    else break;
+  }
+  return chosen ?? candles[candles.length - 1].time;
+}
+
+function riseBar(candles: Candle[], from: number, target: number): number | null {
+  for (const candle of candles) {
+    if (candle.time < from) continue;
+    if (candle.high >= target) return candle.time;
+  }
+  return null;
+}
+
 function readCandle(raw: unknown): Candle | null {
   if (Array.isArray(raw)) {
     const [rawTime, rawOpen, rawHigh, rawLow, rawClose, rawVolume] = raw;
@@ -214,12 +251,16 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
   const [ready, setReady] = useState(false);
   const [config, setConfig] = useState<IndicatorConfig>(DEFAULT_CONFIG);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [signalMarks, setSignalMarks] = useState<SignalMark[]>([]);
   const [loadedConfigKey, setLoadedConfigKey] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const subContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const subChartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const markerApiRef = useRef<{ setMarkers: (markers: ChartMarker[]) => void } | null>(null);
+  const markerFactoryRef = useRef<((series: ISeriesApi<"Candlestick">, markers: ChartMarker[]) => { setMarkers: (markers: ChartMarker[]) => void }) | null>(null);
+  const targetLineRef = useRef<{ applyOptions?: (options: object) => void } | null>(null);
   const seriesRef = useRef<Record<string, ISeriesApi<any>>>({});
   const socketStatus = useLiveStatus();
   const socketStatusRef = useRef(socketStatus);
@@ -269,6 +310,23 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
     setCandles([]);
     void load();
   }, [load]);
+  useEffect(() => {
+    let active = true;
+    setSignalMarks([]);
+    const pull = async () => {
+      try {
+        const response = await apiRequest(`/api/chart/${encodeURIComponent(symbol)}/signal-marks`, { cache: "no-store" });
+        if (!response.ok || !active) return;
+        const body = await response.json() as { marks?: SignalMark[] };
+        if (active) setSignalMarks(Array.isArray(body.marks) ? body.marks : []);
+      } catch {
+        if (active) setSignalMarks([]);
+      }
+    };
+    void pull();
+    const timer = window.setInterval(pull, 60_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [symbol]);
   useLiveMessages((message) => {
     if (message.type !== "kline" || !message.data || typeof message.data !== "object") return;
     const bar = message.data as Record<string, unknown>;
@@ -321,6 +379,8 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
       sub = charts.createChart(subContainerRef.current, { ...common, width: subContainerRef.current.clientWidth, height: compact ? 72 : 115, timeScale: { ...common.timeScale, visible: false } });
       chartRef.current = main; subChartRef.current = sub;
       candleSeriesRef.current = main.addSeries(charts.CandlestickSeries, { upColor: "#08a66a", downColor: "#e24755", borderVisible: false, wickUpColor: "#08a66a", wickDownColor: "#e24755" });
+      markerFactoryRef.current = typeof charts.createSeriesMarkers === "function" ? charts.createSeriesMarkers : null;
+      markerApiRef.current = null;
       seriesRef.current = {
         volume: main.addSeries(charts.HistogramSeries, { priceScaleId: "volume", priceFormat: { type: "volume" }, lastValueVisible: false, priceLineVisible: false }),
         sma: main.addSeries(charts.LineSeries, { color: "#3478e5", lineWidth: 2, priceLineVisible: false, lastValueVisible: false }),
@@ -375,7 +435,7 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
       observer.observe(containerRef.current); observer.observe(subContainerRef.current);
       setReady(true);
     }).catch(() => setError("Grafik bileşeni yüklenemedi."));
-    return () => { cancelled = true; observer?.disconnect(); main?.remove(); sub?.remove(); chartRef.current = null; subChartRef.current = null; candleSeriesRef.current = null; seriesRef.current = {}; appliedRef.current = null; setReady(false); };
+    return () => { cancelled = true; observer?.disconnect(); main?.remove(); sub?.remove(); chartRef.current = null; subChartRef.current = null; candleSeriesRef.current = null; markerApiRef.current = null; targetLineRef.current = null; seriesRef.current = {}; appliedRef.current = null; setReady(false); };
   }, [compact]);
 
   useEffect(() => {
@@ -510,6 +570,60 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
     if (enabled.has("macd") && lastValue(values.histogram) != null) seriesRef.current.macd?.update({ time: lastTime, value: lastValue(values.histogram) as number, color: (lastValue(values.histogram) as number) >= 0 ? "#08a66a" : "#e24755" });
   }, [candles, config.enabled, ready, values, symbol, interval]);
 
+  useEffect(() => {
+    const series = candleSeriesRef.current;
+    if (!ready || !series) return;
+    if (candles.length === 0) {
+      markerApiRef.current?.setMarkers([]);
+      return;
+    }
+    const markers: ChartMarker[] = [];
+    const used = new Set<string>();
+    const ordered = [...signalMarks].sort((left, right) => Number(left.detected_at || 0) - Number(right.detected_at || 0));
+    for (const mark of ordered) {
+      const notified = barAtOrBefore(candles, Number(mark.detected_at || 0));
+      if (notified == null) continue;
+      const notifyKey = `${notified}:below`;
+      if (!used.has(notifyKey)) {
+        used.add(notifyKey);
+        markers.push({ time: notified as UTCTimestamp, position: "belowBar", color: "#3478e5", shape: "arrowUp", text: "Bildirim" });
+      }
+      const target = Number(mark.expected_price || 0);
+      const hit = target > 0 ? riseBar(candles, notified, target) : null;
+      const recordedHit = String(mark.outcome_status || "").toUpperCase().includes("HEDEF")
+        ? barAtOrBefore(candles, Number(mark.outcome_at || 0))
+        : null;
+      const rise = hit ?? recordedHit;
+      if (rise == null) continue;
+      const riseKey = `${rise}:above`;
+      if (used.has(riseKey)) continue;
+      used.add(riseKey);
+      markers.push({ time: rise as UTCTimestamp, position: "aboveBar", color: "#08a66a", shape: "arrowDown", text: "Hedef" });
+    }
+    markers.sort((left, right) => Number(left.time) - Number(right.time));
+    if (!markerApiRef.current && markerFactoryRef.current) {
+      markerApiRef.current = markerFactoryRef.current(series, markers);
+    } else {
+      markerApiRef.current?.setMarkers(markers);
+    }
+    const latest = [...signalMarks].sort((left, right) => Number(right.detected_at || 0) - Number(left.detected_at || 0))[0];
+    const targetPrice = Number(latest?.expected_price || 0);
+    if (targetLineRef.current && "applyOptions" in (series as object)) {
+      try { series.removePriceLine(targetLineRef.current as never); } catch { /* seri yenilendiyse çizgi de gitmiştir */ }
+      targetLineRef.current = null;
+    }
+    if (targetPrice > 0) {
+      targetLineRef.current = series.createPriceLine({
+        price: targetPrice,
+        color: "#08a66a",
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: "Hedef",
+      });
+    }
+  }, [candles, ready, signalMarks]);
+
   const filteredSymbols = useMemo(() => {
     const query = normalizeSymbol(search);
     return query.length < 2 ? [] : symbols.filter((item) => normalizeSymbol(item).includes(query)).sort((a, b) => Number(normalizeSymbol(b).startsWith(query)) - Number(normalizeSymbol(a).startsWith(query))).slice(0, 12);
@@ -549,6 +663,9 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
               {activeCandle.close >= activeCandle.open ? "+" : ""}{(((activeCandle.close - activeCandle.open) / (activeCandle.open || 1)) * 100).toFixed(2)}%
             </span>
           </div>
+        )}
+        {signalMarks.length > 0 && (
+          <span className="text-[10px] font-medium text-ink-500">▲ bildirim · ▼ hedefe ulaştı · kesik çizgi son hedef</span>
         )}
       </div>
 

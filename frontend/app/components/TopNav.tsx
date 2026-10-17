@@ -19,6 +19,7 @@ const NAV = [
   { href: "/emirler", label: "Açık Emirler" },
   { href: "/gecmis-islemler", label: "İşlem Geçmişi" },
   { href: "/alarmlar", label: "Alarmlar" },
+  { href: "/otonom-paper", label: "Otonom Paper", adminOnly: true },
   { href: "/kullanicilar", label: "Kullanıcı Yönetimi", adminOnly: true },
   { href: "/ayarlar", label: "Ayarlar" },
 ];

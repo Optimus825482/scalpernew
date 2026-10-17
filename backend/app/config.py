@@ -1031,7 +1031,7 @@ class Config:
     # PANEL skoruyla karşılaştırır. Eski panel 50 = ham 1000 (lineer, cap 2000);
     # log haritada aynı ham nokta panel 68.2 → DEĞER KORUNARAK yeniden ankrajlandı.
     AUTO_PAPER_MIN_SCORE_DEFAULT = float(os.getenv("AUTO_PAPER_MIN_SCORE", "68.2"))
-    AUTO_PAPER_BALANCE_PCT_DEFAULT = float(os.getenv("AUTO_PAPER_BALANCE_PCT", "35"))
+    AUTO_PAPER_BALANCE_PCT_DEFAULT = float(os.getenv("AUTO_PAPER_BALANCE_PCT", "30"))
     # 2026-10-07 OPTIMIZASYON: 1.5 -> 5.0. KANIT (30 gun, 256 sembol, gercek
     # Binance TR 5dk mumlari, 3214 bildirim, mum-ici replay, maliyet %0.325):
     # sig stop sinyalin 5 dk'lik gurultusu icinde islemlerin yarisini kesiyordu.

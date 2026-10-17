@@ -1,5 +1,6 @@
 "use client";
 
+import AppLink from "./AppLink";
 import { apiRequest } from "../lib/api";
 import { usePoll } from "../lib/hooks";
 import { useAuth } from "../lib/auth";
@@ -64,7 +65,8 @@ export default function PaperTrades() {
       <SectionHeader
         eyebrow="Yalnız yönetici"
         title="Sinyal paper işlemleri"
-        description="Canlı radar bildirimi gelince sistem bu deftere sanal işlem açar. Elle tarama emir açmaz. Gerçek Binance bakiyesi yukarıdaki tablodadır."
+        description="Arka plan taraması eşiği geçen sinyale sanal alım açar. Karttaki Alım Yap gerçek hesap içindir ve paper açmaz. Komisyon giriş ve çıkışta düşülür."
+        actions={<AppLink href="/otonom-paper" className="rounded-lg border border-line px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent-soft">Paper defteri →</AppLink>}
       />
       {open.loading && !open.data ? <Skeleton className="mt-4 h-24" /> : open.error && !open.data ? (
         <EmptyState title="Paper listesi alınamadı" hint={open.error} tone="loss" />

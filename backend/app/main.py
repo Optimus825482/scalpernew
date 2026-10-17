@@ -4663,6 +4663,27 @@ async def portfolio_equity_curve(request: Request):
             "generated_at": time.time(), "paper_only": True}
 
 
+@app.get("/api/chart/{symbol}/signal-marks")
+async def chart_signal_marks(symbol: str):
+    """Bildirim gönderilmiş sembol için grafik işaretleri: bildirim anı ve hedef fiyat."""
+    sym = str(symbol).replace("_", "").upper()
+    rows = await database.list_symbol_signal_marks(sym, limit=40)
+    marks = []
+    for row in rows:
+        marks.append({
+            "id": row.get("id"),
+            "detected_at": row.get("detected_at"),
+            "price": row.get("price"),
+            "expected_price": row.get("expected_price"),
+            "target_pct": row.get("target_pct"),
+            "score": row.get("score"),
+            "outcome_status": row.get("outcome_status"),
+            "outcome_at": row.get("outcome_at"),
+            "horizon_minutes": row.get("horizon_minutes"),
+        })
+    return {"symbol": sym, "marks": marks}
+
+
 @app.get("/api/chart/{symbol}/timeframe-trends")
 async def chart_timeframe_trends(symbol: str):
     """Fast, completed-candle EMA alignment ribbon for the chart terminal."""
