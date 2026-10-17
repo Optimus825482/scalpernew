@@ -578,27 +578,39 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
       return;
     }
     const markers: ChartMarker[] = [];
-    const used = new Set<string>();
-    const ordered = [...signalMarks].sort((left, right) => Number(left.detected_at || 0) - Number(right.detected_at || 0));
-    for (const mark of ordered) {
-      const notified = barAtOrBefore(candles, Number(mark.detected_at || 0));
-      if (notified == null) continue;
-      const notifyKey = `${notified}:below`;
-      if (!used.has(notifyKey)) {
-        used.add(notifyKey);
+    const latest = [...signalMarks].sort((left, right) => Number(right.detected_at || 0) - Number(left.detected_at || 0))[0];
+    if (latest) {
+      const notified = barAtOrBefore(candles, Number(latest.detected_at || 0));
+      if (notified != null) {
         markers.push({ time: notified as UTCTimestamp, position: "belowBar", color: "#3478e5", shape: "arrowUp", text: "Bildirim" });
+        const target = Number(latest.expected_price || 0);
+        const hit = target > 0 ? riseBar(candles, notified, target) : null;
+        const recordedHit = String(latest.outcome_status || "").toUpperCase().includes("HEDEF")
+          ? barAtOrBefore(candles, Number(latest.outcome_at || 0))
+          : null;
+        const rise = hit ?? recordedHit;
+        if (rise != null) {
+          markers.push({ time: rise as UTCTimestamp, position: "aboveBar", color: "#08a66a", shape: "arrowDown", text: "Hedef" });
+        }
       }
-      const target = Number(mark.expected_price || 0);
-      const hit = target > 0 ? riseBar(candles, notified, target) : null;
-      const recordedHit = String(mark.outcome_status || "").toUpperCase().includes("HEDEF")
-        ? barAtOrBefore(candles, Number(mark.outcome_at || 0))
-        : null;
-      const rise = hit ?? recordedHit;
-      if (rise == null) continue;
-      const riseKey = `${rise}:above`;
-      if (used.has(riseKey)) continue;
-      used.add(riseKey);
-      markers.push({ time: rise as UTCTimestamp, position: "aboveBar", color: "#08a66a", shape: "arrowDown", text: "Hedef" });
+    }
+    if (config.enabled.includes("stochrsi")) {
+      const kLine = values.stochK;
+      const dLine = values.stochD;
+      for (let index = 1; index < candles.length; index += 1) {
+        const prevK = kLine[index - 1];
+        const prevD = dLine[index - 1];
+        const currK = kLine[index];
+        const currD = dLine[index];
+        if (prevK == null || prevD == null || currK == null || currD == null) continue;
+        const crossUp = prevK <= prevD && currK > currD && currK < STOCH_RSI_LOW && prevK < STOCH_RSI_LOW;
+        const crossDown = prevK >= prevD && currK < currD && currK > STOCH_RSI_HIGH && prevK > STOCH_RSI_HIGH;
+        if (crossUp) {
+          markers.push({ time: candles[index].time as UTCTimestamp, position: "belowBar", color: "#08a66a", shape: "arrowUp", text: "" });
+        } else if (crossDown) {
+          markers.push({ time: candles[index].time as UTCTimestamp, position: "aboveBar", color: "#e24755", shape: "arrowDown", text: "" });
+        }
+      }
     }
     markers.sort((left, right) => Number(left.time) - Number(right.time));
     if (!markerApiRef.current && markerFactoryRef.current) {
@@ -606,7 +618,6 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
     } else {
       markerApiRef.current?.setMarkers(markers);
     }
-    const latest = [...signalMarks].sort((left, right) => Number(right.detected_at || 0) - Number(left.detected_at || 0))[0];
     const targetPrice = Number(latest?.expected_price || 0);
     if (targetLineRef.current && "applyOptions" in (series as object)) {
       try { series.removePriceLine(targetLineRef.current as never); } catch { /* seri yenilendiyse çizgi de gitmiştir */ }
@@ -622,7 +633,7 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
         title: "Hedef",
       });
     }
-  }, [candles, ready, signalMarks]);
+  }, [candles, config.enabled, ready, signalMarks, values]);
 
   const filteredSymbols = useMemo(() => {
     const query = normalizeSymbol(search);
@@ -665,7 +676,7 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
           </div>
         )}
         {signalMarks.length > 0 && (
-          <span className="text-[10px] font-medium text-ink-500">▲ bildirim · ▼ hedefe ulaştı · kesik çizgi son hedef</span>
+          <span className="text-[10px] font-medium text-ink-500">son bildirim · son hedef · yeşil ok Stoch 20 altı yukarı kesişim · kırmızı ok 80 üstü aşağı kesişim</span>
         )}
       </div>
 
