@@ -1078,21 +1078,8 @@ async def _manage_single_trade(trade: dict, now: float, breakeven_trigger_pct: f
             except Exception as exc:
                 logger.warning("auto_paper %s akış evrenine ekleme koruması: %s", symbol, exc)
 
-    # Yalnızca açıkça doğrulanmış durağan/ölü semboller (gerçekten ölü tahta / hacimsiz)
-    passive_symbols = getattr(config, "PASSIVE_SYMBOLS", None)
-    is_passive = bool(passive_symbols and symbol in passive_symbols)
-
-    if is_passive:
-        # D-02: aynı tazelik kuralı — bayat fiyatla kapatma yapılmaz.
-        if not price_is_fresh:
-            logger.info("auto_paper %s: sembol pasif ama fiyat bayat — kapanış ertelendi", symbol)
-            return
-        exit_price = current_price if current_price > 0 else float(trade.get("peak_price") or entry_price)
-        logger.info("auto_paper %s: SEMBOL PASİFE ALINMIŞ (doğrulanmış durağan) — açık pozisyon kapatılıyor (çıkış=%.6f)",
-                    symbol, exit_price)
-        await _close_trade(trade_id, symbol, exit_price, now, "symbol_deactivated")
-        return
-
+    # Pasif liste yeni girişleri keser. Açık paper işlemi kapatmaz:
+    # canlı grafikte hareket varken symbol_deactivated ile satış oluyordu.
     if not price_is_fresh:
         return
 

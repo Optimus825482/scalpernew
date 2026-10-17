@@ -575,27 +575,6 @@ async def refresh_top_gainer_symbols():
     # Evreni güncelle: `config.SYMBOLS` + `market.symbols` TEK kapıdan
     # (bkz. app/state.py). Boş liste reddedilir; burada zaten kontrol edildi.
     apply_symbol_universe(active, source="top_gainers")
-    dropped_symbols = previous_active - set(active)
-    if dropped_symbols:
-        # Liste rotasyonu paper kapatmaz. Grafik hâlâ canlıyken top-10'dan
-        # düşünce işlem symbol_deactivated oluyordu. Yalnız borsadan kalkan
-        # sembol kapatılır.
-        try:
-            from app.routers import auto_paper as _ap
-            open_auto_trades = await database.list_auto_paper_trades(
-                status="open", apply_reports_baseline=False)
-            for trade in open_auto_trades:
-                sym = str(trade.get("symbol") or "").upper()
-                if sym in dropped_symbols and sym not in known_try:
-                    trade_id = int(trade["id"])
-                    tk = market.get_ticker(sym)
-                    price = float(tk.get("last_price") or 0) if tk else 0
-                    if not price:
-                        price = float(trade.get("peak_price") or trade.get("entry_price") or 0)
-                    await _ap._close_trade(trade_id, sym, price, time.time(), "symbol_deactivated")
-                    print(f"[Top Gainers] Pasife düşen {sym} için auto_paper pozisyonu ({trade_id}) kapatıldı @ {price}", flush=True)
-        except Exception as exc:
-            print(f"[Top Gainers] auto_paper pasif kapatma hatası: {exc}", flush=True)
     # Newly activated symbols would otherwise wait ~4.6h on the WS alone
     # to collect enough closed 5m candles; hydrate them up front so MTF
     # gates are usable from the first scan.
@@ -1048,30 +1027,8 @@ async def _close_positions_on_passivation(passive_symbols):
                 await ws_manager.broadcast({"type": "signal", "data": sig})
                 print(f"[Activity passive exit] {symbol} pasif; açık pozisyon PnL'den bağımsız kapatıldı @ {price}", flush=True)
 
-    # 2. Otonom paper trade açık pozisyonları kapat (2026-09-21 Erkan kararı)
-    try:
-        from app.routers import auto_paper as _ap
-        # P0-3 (2026-10-07): pasif-sembol pozisyon kapatma yolu — rapor görünüm
-        # sınırı açık pozisyonu gizlememeli (yoksa kapanmadan açık kalır).
-        open_auto_trades = await database.list_auto_paper_trades(
-            status="open", apply_reports_baseline=False)
-        for trade in open_auto_trades:
-            sym = str(trade.get("symbol") or "").upper()
-            if sym in passive_symbols:
-                trade_id = int(trade["id"])
-                try:
-                    price, _ = await _fresh_public_price(sym)
-                except Exception:
-                    price = None
-                if not price:
-                    tk = market.get_ticker(sym)
-                    price = float(tk.get("last_price") or 0) if tk else 0
-                if not price:
-                    price = float(trade.get("peak_price") or trade.get("entry_price") or 0)
-                await _ap._close_trade(trade_id, sym, price, time.time(), "symbol_deactivated")
-                print(f"[Activity passive exit] auto_paper {sym} pasif; pozisyon ({trade_id}) kapatıldı @ {price}", flush=True)
-    except Exception as exc:
-        print(f"[Activity passive exit] auto_paper kontrol hatası: {exc}", flush=True)
+    # Otonom paper burada kapatılmaz. Pasif işaret yalnız yeni girişi keser.
+    # Açık işlem stop, hedef, süre veya elle kapatma ile çıkar.
     invalidate_wallet_caches()
 
 async def refresh_symbol_activity():
