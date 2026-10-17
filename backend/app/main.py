@@ -3061,8 +3061,11 @@ async def save_binance_settings(payload: dict, request: Request):
     if has_key_fields:
         if not api_key or not api_secret:
             raise HTTPException(status_code=422, detail="API key ve secret gerekli")
-        enc_key = llm_analysis.encrypt_key(api_key, primary_env="BINANCE_ENCRYPTION_KEY", fallback_env="LLM_ENCRYPTION_KEY")
-        enc_secret = llm_analysis.encrypt_key(api_secret, primary_env="BINANCE_ENCRYPTION_KEY", fallback_env="LLM_ENCRYPTION_KEY")
+        try:
+            enc_key = llm_analysis.encrypt_key(api_key, primary_env="BINANCE_ENCRYPTION_KEY", fallback_env="LLM_ENCRYPTION_KEY")
+            enc_secret = llm_analysis.encrypt_key(api_secret, primary_env="BINANCE_ENCRYPTION_KEY", fallback_env="LLM_ENCRYPTION_KEY")
+        except (RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         await database.save_user_binance_keys(user_id, enc_key, enc_secret, real_val)
         # Admin çift yazma: eski global anahtarlar da tazelenir (backcompat).
         if principal.get("role") == "admin":

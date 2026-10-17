@@ -473,13 +473,31 @@ def _trim_tool_result(value):
         return value if not isinstance(value, str) else text
     return {"truncated": True, "original_chars": len(text), "preview": text[:limit]}
 
-def _fernet(primary_env="LLM_ENCRYPTION_KEY", fallback_env=None):
-    key = os.getenv(primary_env, "").strip()
-    if not key and fallback_env:
-        key = os.getenv(fallback_env, "").strip()
+def _usable_fernet_key(raw: str) -> str | None:
+    """Fernet anahtarını tırnak ve boşluktan arındırır. Geçersizse None."""
+    key = str(raw or "").strip().strip('"').strip("'").strip()
     if not key:
-        raise RuntimeError(f"{primary_env} tanımlı değil")
-    return Fernet(key.encode())
+        return None
+    try:
+        Fernet(key.encode())
+    except Exception:
+        return None
+    return key
+
+
+def _fernet(primary_env="LLM_ENCRYPTION_KEY", fallback_env=None):
+    for env_name in (primary_env, fallback_env):
+        if not env_name:
+            continue
+        key = _usable_fernet_key(os.getenv(env_name, ""))
+        if key:
+            return Fernet(key.encode())
+    names = " veya ".join(name for name in (primary_env, fallback_env) if name)
+    raise RuntimeError(
+        f"{names} geçerli bir Fernet anahtarı değil. "
+        "32 bayt url-safe base64 olmalı. Üretmek için: "
+        "python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+    )
 
 def encrypt_key(value, primary_env="LLM_ENCRYPTION_KEY", fallback_env=None):
     return _fernet(primary_env, fallback_env).encrypt(value.encode()).decode()
