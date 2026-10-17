@@ -11,7 +11,7 @@ export type Candle = { time: number; open: number; high: number; low: number; cl
 type Indicator = "volume" | "sma" | "ema" | "ema3" | "bollinger" | "rsi" | "stochrsi" | "macd" | "vwap" | "atr" | "adx";
 type IndicatorConfig = { version: number; enabled: Indicator[]; periods: { sma: number; ema: number; bollinger: number; rsi: number; atr: number; adx: number } };
 const INTERVALS = ["1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"] as const;
-const CONFIG_VERSION = 2;
+const CONFIG_VERSION = 3;
 const STOCH_RSI_PERIOD = 14;
 const STOCH_RSI_LOW = 20;
 const STOCH_RSI_HIGH = 80;
@@ -24,7 +24,7 @@ const INDICATORS: Array<{ id: Indicator; label: string }> = [
 ];
 const DEFAULT_CONFIG: IndicatorConfig = {
   version: CONFIG_VERSION,
-  enabled: ["volume", "ema3", "stochrsi"],
+  enabled: ["ema3", "stochrsi"],
   periods: { sma: 20, ema: 12, bollinger: 20, rsi: 14, atr: 14, adx: 14 },
 };
 const normalizeSymbol = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -580,7 +580,7 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
       {/* 1-Tık Hazır Paketler */}
       <div className="mb-2.5 flex flex-wrap items-center gap-1.5 border-b border-line pb-2.5">
         <span className="text-[10px] font-bold uppercase tracking-wider text-ink-400 mr-1">Hazır Paketler:</span>
-        <button type="button" onClick={() => setConfig((p) => ({ ...p, enabled: ["volume", "ema3", "stochrsi"] }))} className="rounded-md border border-line bg-white px-2 py-1 text-[11px] font-semibold text-ink-800 hover:border-ink-400">◎ Varsayılan (EMA 7/20/99 + Stoch RSI)</button>
+        <button type="button" onClick={() => setConfig((p) => ({ ...p, enabled: ["ema3", "stochrsi"] }))} className="rounded-md border border-line bg-white px-2 py-1 text-[11px] font-semibold text-ink-800 hover:border-ink-400">◎ Varsayılan (EMA 7/20/99 + Stoch RSI)</button>
         <button type="button" onClick={() => setConfig((p) => ({ ...p, enabled: ["volume", "ema", "rsi", "vwap"] }))} className="rounded-md border border-line bg-white px-2 py-1 text-[11px] font-semibold text-accent hover:border-accent hover:bg-accent-soft">🎯 Scalp (EMA+RSI+VWAP)</button>
         <button type="button" onClick={() => setConfig((p) => ({ ...p, enabled: ["volume", "sma", "bollinger", "macd"] }))} className="rounded-md border border-line bg-white px-2 py-1 text-[11px] font-semibold text-violet-600 hover:border-violet-400 hover:bg-violet-50">📈 Trend (SMA+BB+MACD)</button>
         <button type="button" onClick={() => setConfig((p) => ({ ...p, enabled: ["volume", "atr", "adx", "bollinger"] }))} className="rounded-md border border-line bg-white px-2 py-1 text-[11px] font-semibold text-amber-700 hover:border-amber-400 hover:bg-amber-50">⚡ Volatilite (ATR+ADX+BB)</button>

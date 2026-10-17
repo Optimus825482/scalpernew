@@ -386,8 +386,9 @@ async def profile_update_password(payload: dict, request: Request):
 
 
 @app.get("/api/dashboard/summary")
-async def dashboard_summary():
-    """Ana sayfa dashboard özeti (salt okunur): bugünün sinyalleri, otonom işlem durumu, portföy."""
+async def dashboard_summary(request: Request):
+    """Paper portföy özeti. Yalnız admin."""
+    _require_admin(request)
     return {"paper_only": True, **await database.get_dashboard_summary()}
 
 
@@ -2334,7 +2335,11 @@ async def patch_chart_display(symbol: str, payload: dict):
     return {"symbol": symbol, "saved": True, "display": display}
 
 @app.get("/api/positions")
-async def get_positions():
+async def get_positions(request: Request):
+    """Sistem paper pozisyonları. Yalnız admin görür; diğer oturumlara boş liste."""
+    viewer = _session_user(request) or {}
+    if viewer.get("role") != "admin":
+        return {"positions": [], "auto_paper_error": None, "hidden": True}
     positions = []
     for sym, pos in analyzer.positions.items():
         try:
@@ -4626,15 +4631,17 @@ async def close_position_manual(symbol: str, request: Request):
     return {"ok": True, "message": f"{symbol} kapatıldı @ {price:.2f}", "signal": sig}
 
 @app.get("/api/trades")
-async def get_trades(limit: int = 100, offset: int = 0, symbol: str = "", strategy: str = ""):
-    """Kapanan pozisyonların işlem geçmişi."""
+async def get_trades(request: Request, limit: int = 100, offset: int = 0, symbol: str = "", strategy: str = ""):
+    """Kapanan paper işlem geçmişi. Yalnız admin."""
+    _require_admin(request)
     return {"trades": await database.get_trades(limit, offset, symbol or None, strategy or None),
             "total": await database.get_trade_count(symbol or None, strategy or None), "limit": limit, "offset": offset}
 
 
 @app.get("/api/portfolio/summary")
-async def portfolio_summary():
-    """Single source for global chart/portfolio headline metrics (paper only)."""
+async def portfolio_summary(request: Request):
+    """Paper portföy özeti. Yalnız admin."""
+    _require_admin(request)
     snapshot = _ws_snapshot_cache.get("portfolio") or {}
     try:
         snapshot = database._json_safe(snapshot)
@@ -4649,8 +4656,9 @@ async def portfolio_summary():
 
 
 @app.get("/api/portfolio/equity-curve")
-async def portfolio_equity_curve():
-    """Kapanan paper işlemlerden equity eğrisi + kâr kalitesi metrikleri (salt-okunur)."""
+async def portfolio_equity_curve(request: Request):
+    """Kapanan paper işlemlerden equity eğrisi. Yalnız admin."""
+    _require_admin(request)
     return {"ok": True, "curve": await database.get_portfolio_equity_curve(),
             "generated_at": time.time(), "paper_only": True}
 

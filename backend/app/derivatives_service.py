@@ -262,6 +262,35 @@ async def scan_short_squeeze(tr_symbols: list[str], *,
     return out[:max(1, int(top_n))]
 
 
+async def funding_rates_by_base() -> dict[str, float]:
+    """Tüm USDT vadeli sembollerin son fonlama kesri. Anahtar: baz varlık (BTC).
+
+    Hız Avcısı taraması sembol başına istek atmasın diye tek premiumIndex
+    çağrısı. Önbellek `scan_short_squeeze` ile ortaktır (120 sn).
+    Ağ hatasında boş sözlük: veto uygulanmaz (veri yok ≠ kalabalık long).
+    """
+    now = time.time()
+    if _SQUEEZE_SCAN_CACHE["rows"] is not None and now < _SQUEEZE_SCAN_CACHE["expires"]:
+        data = _SQUEEZE_SCAN_CACHE["rows"]
+    else:
+        data = await asyncio.to_thread(
+            _fetch_fapi_json, f"{FAPI_BASE}/fapi/v1/premiumIndex")
+        _SQUEEZE_SCAN_CACHE["rows"] = data if isinstance(data, list) else []
+        _SQUEEZE_SCAN_CACHE["expires"] = now + SQUEEZE_SCAN_TTL_SEC
+    out: dict[str, float] = {}
+    if not isinstance(data, list):
+        return out
+    for row in data:
+        try:
+            fs = str(row.get("symbol") or "").upper()
+            if not fs.endswith("USDT"):
+                continue
+            out[fs[:-4]] = float(row.get("lastFundingRate") or 0.0)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
 def get_cached_derivatives_intel(symbol: str, max_age_sec: float | None = None) -> dict | None:
     """Bellekteki son vadeli piyasa istihbaratını senkron olarak döner.
 

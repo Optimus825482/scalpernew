@@ -99,9 +99,9 @@ export default function TopNav() {
   return (
     <>
       <header className="sticky top-0 z-30 border-b border-line bg-white/95 backdrop-blur-md">
-      <div className="mx-auto flex h-16 max-w-[1600px] items-center justify-between gap-3 px-4 sm:px-6">
-        {/* Sol Logo ve Başlık */}
-        <div className="flex items-center gap-4">
+      <div className="mx-auto flex h-16 max-w-[1600px] items-center gap-3 px-4 sm:px-6">
+        {/* Sol Logo ve Başlık — menü kayar, sağdaki arama düğmesinin altına taşmaz */}
+        <div className="flex min-w-0 flex-1 items-center gap-3">
           <AppLink href="/" className="flex shrink-0 items-center gap-2.5">
             <img
               src="/icons/icon-512.png"
@@ -119,7 +119,7 @@ export default function TopNav() {
           </AppLink>
 
           {/* Menü Sekmeleri — mobilde alt tab bar var, burada yalnızca lg+ */}
-          <nav className="odak-ticker-scroll hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto lg:flex lg:flex-none" aria-label="Ana navigasyon">
+          <nav className="odak-ticker-scroll hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto lg:flex" aria-label="Ana navigasyon">
             {NAV.filter((item) => !item.adminOnly || isAdmin).map((item) => {
               const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
               return (
@@ -141,7 +141,7 @@ export default function TopNav() {
         </div>
 
         {/* Sağ: Arama, Durum Göstergeleri ve Kullanıcı */}
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
           {/* Hızlı Arama Butonu (Cmd+K) */}
           <button
             type="button"

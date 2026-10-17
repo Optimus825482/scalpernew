@@ -47,9 +47,11 @@ export default function SideNav() {
           <span className={`h-2.5 w-2.5 rounded-full ${active ? "bg-gain" : "bg-warn"}`} />
           {active ? "Sistem Aktif" : health.loading ? "Durum alınıyor" : "Kontrol gerekli"}
         </p>
-        <p className="mt-3 flex items-center justify-between text-xs text-ink-500">
-          <span>İşlem modu</span><span className="font-semibold text-accent">Paper</span>
-        </p>
+        {isAdmin && (
+          <p className="mt-3 flex items-center justify-between text-xs text-ink-500">
+            <span>Sinyal defteri</span><span className="font-semibold text-accent">Paper</span>
+          </p>
+        )}
         <p className="mt-1 text-[11px] text-ink-400">
           {health.data?.market?.fresh_symbols != null
             ? `${health.data.market.fresh_symbols} sembolde güncel veri`

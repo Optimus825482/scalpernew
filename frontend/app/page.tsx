@@ -7,12 +7,14 @@ import { usePoll } from "./lib/hooks";
 import { toOpportunityView, type OpportunityView } from "./lib/opportunity";
 import { useWatchlist } from "./lib/watchlist";
 import { fmtDateTime } from "./lib/format";
+import { useLivePrices } from "./lib/livePrices";
 import type { ManualUnifiedScanResponse, UnifiedScanResponse, UnifiedScanRun } from "./lib/types";
 import { Badge, Card, SectionHeader, Tabs } from "./components/ui";
 import PortfolioStrip from "./components/PortfolioStrip";
 import WatchStrip from "./components/WatchStrip";
 import OpportunityCard from "./components/OpportunityCard";
 import ActiveTradesTable from "./components/ActiveTradesTable";
+import PaperTrades from "./components/PaperTrades";
 import OrderPanel from "./components/OrderPanel";
 import LiveNotificationToast from "./components/LiveNotificationToast";
 import MarketChart from "./components/MarketChart";
@@ -39,6 +41,8 @@ export default function Home() {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const { favorites, isFavorite, toggleFavorite } = useWatchlist();
   const scan = usePoll<UnifiedScanResponse>("/api/unified-scan/latest", 20_000, 30_000);
+  const prefs = usePoll<{ preferences?: { min_score?: number } }>("/api/user/preferences", 60_000);
+  const minScore = Math.max(0, Number(prefs.data?.preferences?.min_score ?? 0)) || 0;
 
   useEffect(() => {
     try {
@@ -104,10 +108,12 @@ export default function Home() {
   }, [run, isFavorite]);
 
   const filtered = useMemo(() => {
-    if (horizon === "favorites") return views.filter((item) => isFavorite(item.symbol));
-    if (horizon === "all") return views;
-    return views.filter((item) => item.horizonMinutes === Number(horizon));
-  }, [views, horizon, isFavorite]);
+    const scored = minScore > 0 ? views.filter((item) => (item.strength ?? 0) >= minScore) : views;
+    if (horizon === "favorites") return scored.filter((item) => isFavorite(item.symbol));
+    if (horizon === "all") return scored;
+    return scored.filter((item) => item.horizonMinutes === Number(horizon));
+  }, [views, horizon, isFavorite, minScore]);
+  const livePrices = useLivePrices(filtered.map((item) => item.symbol));
 
   const activeSymbol = selected || (filtered.length > 0 ? filtered[0].symbol : "BTCUSDT");
 
@@ -304,7 +310,7 @@ export default function Home() {
               </div>
             ) : filtered.length === 0 ? (
               <div className="mt-6 rounded-xl border border-dashed border-line py-8 text-center text-sm text-ink-400">
-                {horizon === "favorites" ? "Favori sembollerinizde henüz aday yok." : "Henüz aday bulunmuyor. Piyasa Tara ile salt-veri taraması başlatabilirsiniz."}
+                {horizon === "favorites" ? "Favori sembollerinizde henüz aday yok." : minScore > 0 && views.length > 0 ? `Ayarlardaki minimum skor (${minScore}) bu adayların hepsini eliyor.` : "Henüz aday bulunmuyor. Piyasa Tara ile salt-veri taraması başlatabilirsiniz."}
               </div>
             ) : (
               <div className="mt-4 grid gap-3.5 sm:grid-cols-2 xl:grid-cols-4">
@@ -318,15 +324,17 @@ export default function Home() {
                       setSelected(item.symbol);
                       setQuickAmount(null);
                     }}
+                    livePrice={livePrices[item.symbol] ?? null}
                     onQuickBuy={(symbol, amount) => {
                       setSelected(symbol);
-                      setQuickAmount(amount ?? null);
+                      setQuickAmount(amount ?? 1000);
+                      document.getElementById("islem-paneli")?.scrollIntoView({ behavior: "smooth", block: "start" });
                     }}
                   />
                 ))}
               </div>
             )}
-            {run && <p className="mt-3 text-[10px] text-ink-400">Sürüm {run.algorithm_version ?? "combined-v1"} · her sembol yalnızca en güçlü ufkuyla bir kez listelenir.</p>}
+            {run && <p className="mt-3 text-[10px] text-ink-400">Sürüm {run.algorithm_version ?? "combined-v1"} · her sembol yalnızca en güçlü ufkuyla bir kez listelenir.{minScore > 0 ? ` Skor filtresi ${minScore}+ uygulanıyor.` : ""}</p>}
           </Card>
         </div>
       ) : (
@@ -360,7 +368,7 @@ export default function Home() {
               </div>
             ) : filtered.length === 0 ? (
               <div className="mt-6 rounded-xl border border-dashed border-line py-12 text-center text-sm text-ink-400">
-                {horizon === "favorites" ? "Favori sembollerinizde henüz aday yok." : "Henüz aday bulunmuyor. Piyasa Tara ile salt-veri taraması başlatabilirsiniz."}
+                {horizon === "favorites" ? "Favori sembollerinizde henüz aday yok." : minScore > 0 && views.length > 0 ? `Ayarlardaki minimum skor (${minScore}) bu adayların hepsini eliyor.` : "Henüz aday bulunmuyor. Piyasa Tara ile salt-veri taraması başlatabilirsiniz."}
               </div>
             ) : (
               <div className="mt-4 grid gap-3.5 sm:grid-cols-2 xl:grid-cols-3">
@@ -374,16 +382,17 @@ export default function Home() {
                       setSelected(item.symbol);
                       setQuickAmount(null);
                     }}
+                    livePrice={livePrices[item.symbol] ?? null}
                     onQuickBuy={(symbol, amount) => {
                       setSelected(symbol);
-                      // Tutar verilmediyse panelin kendi tutarı korunur (null = override yok).
-                      setQuickAmount(amount ?? null);
+                      setQuickAmount(amount ?? 1000);
+                      document.getElementById("islem-paneli")?.scrollIntoView({ behavior: "smooth", block: "start" });
                     }}
                   />
                 ))}
               </div>
             )}
-            {run && <p className="mt-3 text-[10px] text-ink-400">Sürüm {run.algorithm_version ?? "combined-v1"} · her sembol yalnızca en güçlü ufkuyla bir kez listelenir.</p>}
+            {run && <p className="mt-3 text-[10px] text-ink-400">Sürüm {run.algorithm_version ?? "combined-v1"} · her sembol yalnızca en güçlü ufkuyla bir kez listelenir.{minScore > 0 ? ` Skor filtresi ${minScore}+ uygulanıyor.` : ""}</p>}
           </Card>
 
           <div id="islem-paneli" className="scroll-mt-24 lg:sticky lg:top-20 lg:self-start">
@@ -393,7 +402,7 @@ export default function Home() {
               initialCandidate={selectedView}
               onTraded={() => scan.reload()}
             />
-            <p className="mt-2 text-center text-[10px] text-ink-500">Adayı panele taşımak emir göndermez; gerçek emir için ayrı onay gerekir. Kısayollar: j/k gezin · Enter panele aktar · f favori · m tara · p görünüm · ? yardım</p>
+            <p className="mt-2 text-center text-[10px] text-ink-500">Alım Yap emri hemen göndermez; tutarı onaylaman için işlem paneline taşır. Kısayollar: j/k gezin · Enter alım · f favori · m tara · p görünüm · ? yardım</p>
           </div>
         </div>
       )}
@@ -418,6 +427,8 @@ export default function Home() {
           </div>
         </div>
       </Card>
+
+      <PaperTrades />
 
       {showShortcuts && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowShortcuts(false); }}>

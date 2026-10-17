@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import AppLink from "../components/AppLink";
 import { apiRequest } from "../lib/api";
 import { usePoll } from "../lib/hooks";
 import { formatPct, fmtDateTime, formatPrice } from "../lib/format";
+import { elapsedLabel, signalBasePrice, signalSeenAt, useLivePrices } from "../lib/livePrices";
 import { baseAsset, toOpportunityView } from "../lib/opportunity";
 import { sourceLabel } from "../lib/sources";
 import { useWatchlist } from "../lib/watchlist";
@@ -41,6 +42,8 @@ export default function FirsatlarPage() {
 
   const { isFavorite, toggleFavorite } = useWatchlist();
   const latestScan = usePoll<{ run: UnifiedScanRun | null }>("/api/unified-scan/latest", 20_000, 30_000);
+  const prefs = usePoll<{ preferences?: { min_score?: number } }>("/api/user/preferences", 60_000);
+  const minScore = Math.max(0, Number(prefs.data?.preferences?.min_score ?? 0)) || 0;
   const scanHistory = usePoll<UnifiedScanHistoryResponse>("/api/unified-scan/history?limit=30", 60_000);
 
   const latestRun = latestScan.data?.run ?? null;
@@ -91,11 +94,12 @@ export default function FirsatlarPage() {
       };
     });
     return rows.filter(({ view }) => {
+      if (minScore > 0 && (view.strength ?? 0) < minScore) return false;
       if (onlyFavorites && !isFavorite(view.symbol)) return false;
       if (search.trim() && !view.symbol.includes(search.trim().toUpperCase())) return false;
       return true;
     }).sort((left, right) => (right.view.strength ?? 0) - (left.view.strength ?? 0));
-  }, [run, onlyFavorites, search, isFavorite]);
+  }, [run, onlyFavorites, search, isFavorite, minScore]);
 
   return (
     <div className="space-y-5">
@@ -148,6 +152,7 @@ export default function FirsatlarPage() {
             <span>{onlyFavorites ? "★" : "☆"}</span>
             <span>Sadece Favoriler</span>
           </button>
+          {minScore > 0 && <span className="text-[11px] font-medium text-ink-500">Skor filtresi {minScore}+</span>}
         </div>
 
         {manualMessage && (
@@ -187,6 +192,13 @@ function LiveFeed({
   isFavorite: (sym: string) => boolean;
   toggleFavorite: (sym: string) => void;
 }) {
+  const prices = useLivePrices(rows.map((row) => row.view.symbol));
+  const [nowSec, setNowSec] = useState(() => Date.now() / 1000);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowSec(Date.now() / 1000), 15_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   if (loading) return <Skeleton className="h-64" />;
   if (error && rows.length === 0)
     return <EmptyState title="Birleşik tarama alınamadı" hint={error} tone="loss" />;
@@ -205,8 +217,9 @@ function LiveFeed({
               <th className="pb-2 pr-3 font-medium">Sembol</th>
               <th className="pb-2 pr-3 font-medium">Durum</th>
               <th className="pb-2 pr-3 font-medium">Üreten Sistem</th>
-              <th className="pb-2 pr-3 text-right font-medium">Fiyat</th>
+              <th className="pb-2 pr-3 text-right font-medium">Anlık fiyat</th>
               <th className="pb-2 pr-3 text-right font-medium">Değişim</th>
+              <th className="pb-2 pr-3 text-right font-medium">Süre</th>
               <th className="pb-2 pr-3 text-right font-medium">Hedef</th>
               <th className="pb-2 pr-3 text-right font-medium">Skor</th>
               <th className="pb-2 pr-3 text-right font-medium">Ufuk</th>
@@ -216,6 +229,14 @@ function LiveFeed({
           <tbody>
             {rows.map(({ view, kind }, i) => {
               const fav = isFavorite(view.symbol);
+              const live = prices[view.symbol];
+              const shown = live != null && live > 0 ? live : view.price;
+              const base = signalBasePrice(view.symbol, view.price) ?? view.price;
+              const livePct = base != null && shown != null && base > 0 ? ((shown - base) / base) * 100 : null;
+              const targetPct = view.targetPct ?? view.potentialPct;
+              const targetPrice = view.ceilingPrice ?? view.potentialPrice ?? (base != null && targetPct != null ? base * (1 + targetPct / 100) : null);
+              const hit = targetPrice != null && shown != null && shown >= targetPrice;
+              const seen = signalSeenAt(view.symbol, view.createdAt);
               return (
                 <tr key={`${view.symbol}-${view.horizonMinutes ?? 5}-${kind}-${i}`} className="border-t border-line hover:bg-slate-50/50">
                   <td className="py-2.5 pr-2">
@@ -255,13 +276,14 @@ function LiveFeed({
                     </div>
                   </td>
                   <td className="py-2.5 pr-3 text-right font-mono text-ink-700">
-                    {view.price != null ? formatPrice(view.price) : "—"}
+                    {shown != null ? formatPrice(shown) : "—"}
                   </td>
-                  <td className={`py-2.5 pr-3 text-right font-mono ${(view.changePct ?? 0) >= 0 ? "text-gain" : "text-loss"}`}>
-                    {formatPct(view.changePct, 2, true)}
+                  <td className={`py-2.5 pr-3 text-right font-mono ${livePct == null ? "text-ink-400" : livePct >= 0 ? "text-gain" : "text-loss"}`}>
+                    {livePct == null ? "—" : formatPct(livePct, 2, true)}
                   </td>
-                  <td className="py-2.5 pr-3 text-right font-mono font-bold text-gain">
-                    {formatPct(view.potentialPct, 1, true)}
+                  <td className="py-2.5 pr-3 text-right font-mono text-ink-500">{elapsedLabel(nowSec - seen)}</td>
+                  <td className={`py-2.5 pr-3 text-right font-mono font-semibold ${hit ? "text-gain" : "text-ink-600"}`}>
+                    {targetPrice == null ? "—" : hit ? "ulaştı" : formatPct(targetPct, 1, true)}
                   </td>
                   <td className="py-2.5 pr-3 text-right font-mono font-semibold text-accent">
                     {view.strength != null ? `%${Math.round(view.strength)}` : "—"}

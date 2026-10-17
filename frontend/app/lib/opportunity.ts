@@ -65,6 +65,9 @@ export function baseAsset(symbol: string): string {
 export function toOpportunityView(raw: Candidate | DailyOpportunity | Record<string, unknown>): OpportunityView {
   const r = raw as Record<string, unknown>;
   const symbol = String(r.symbol ?? "").toUpperCase();
+  const evidence = r.source_evidence != null && typeof r.source_evidence === "object"
+    ? r.source_evidence as Record<string, unknown>
+    : {};
   
   // Sinyal gücü: 0-1 arası geldiyse 100 ile çarp, yoksa direkt al
   let rawStrength = firstNum(r.quality_score, r.panel_score, r.unified_score, r.scan_score, r.velocity_score, r.score);
@@ -81,7 +84,7 @@ export function toOpportunityView(raw: Candidate | DailyOpportunity | Record<str
     // Potansiyel: potential_pct | tavan (ceiling_pct) | hedef (target_pct)
     potentialPct: firstNum(r.potential_pct, r.ceiling_pct, r.target_pct),
     targetPct: num(r.target_pct),
-    volumeRatio: firstNum(r.volume_ratio, r.volume_surge_ratio, r.surge_mult),
+    volumeRatio: firstNum(r.volume_ratio, r.volume_surge_ratio, r.surge_mult, r.volume_burst, evidence.volume_burst, evidence.volume_ratio),
     strength: rawStrength,
     horizonMinutes: num(r.horizon_minutes),
     strategy: str(r.strategy),
@@ -96,7 +99,7 @@ export function toOpportunityView(raw: Candidate | DailyOpportunity | Record<str
     confirmSources: (Array.isArray(r.supporting_sources) ? r.supporting_sources : []).map(sourceLabel).filter(Boolean),
     confirmLayers: (Array.isArray(r.confirm_layers) ? r.confirm_layers : []).map(sourceLabel).filter(Boolean),
     opposingSources: (Array.isArray(r.opposing_sources) ? r.opposing_sources : Array.isArray(r.conflicting_sources) ? r.conflicting_sources : []).map(sourceLabel).filter(Boolean),
-    sourceEvidence: r.source_evidence != null && typeof r.source_evidence === "object" ? r.source_evidence as Record<string, unknown> : {},
+    sourceEvidence: evidence,
     stopLoss: num(r.stop_loss),
     stopLossPct: num(r.stop_loss_pct),
     scoreComponents: [

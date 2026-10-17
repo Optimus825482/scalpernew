@@ -1,6 +1,7 @@
 import time
 import asyncio
 import json
+import logging
 import numpy as np
 import uuid
 from app.config import config
@@ -651,11 +652,28 @@ class ScalpAnalyzer:
                     # bu alanları geri yükler → stop'suz pozisyon sözleşmesi
                     # korunur.
                     await self._persist_velocity_lock(pos, symbol=symbol)
+            exit_reason = "system_stop_loss"
+            if (getattr(config, "CHANDELIER_EXIT_ENABLED", False) and lock_armed
+                    and pos.get("strategy") in ("CHAT_PREDICTION", "GLOBAL_LEAD_LAG") and kline):
+                try:
+                    from app.radar_addons import chandelier_stop
+                    length = int(getattr(config, "CHANDELIER_LENGTH", 22))
+                    atr_px = self.calculate_atr(kline, length)
+                    ch = chandelier_stop(
+                        kline.get("highs") or [], atr_px, length=length,
+                        mult=float(getattr(config, "CHANDELIER_ATR_MULT", 3.0)))
+                    if ch is not None and price > ch and (system_stop == float("-inf") or ch > system_stop):
+                        system_stop = ch
+                        pos["system_stop_price"] = ch
+                        pos["chandelier_stop"] = ch
+                        exit_reason = "chandelier_exit"
+                except Exception as exc:
+                    logging.getLogger("scalper.analyzer").debug("avize stop %s: %s", symbol, exc)
             if price <= system_stop:
                 # Kâr kilidi stop'u bir trailing değil, kârı koruyan sabit bir
-                # zemindir; normal stop-loss çıkışı olarak işlenir.
+                # zemindir; avize daha yukarıdaysa çıkış nedeni chandelier_exit olur.
                 return await self.close_position(
-                    symbol, self._trigger_fill_price(price, system_stop, "stop"), "system_stop_loss")
+                    symbol, self._trigger_fill_price(price, system_stop, "stop"), exit_reason)
             if pos.get("strategy") in ("CHAT_PREDICTION", "GLOBAL_LEAD_LAG"):
                 # Replay planı, otonom hız avcısı ve Lead-Lag çıkışları: sabit plan TP
                 # (hedef fiyat) ve max-hold. TP girişte

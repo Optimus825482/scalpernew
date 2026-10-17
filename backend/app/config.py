@@ -259,6 +259,23 @@ class Config:
     # zaman kapanış fiyatından yapılır — intrabar low'dan kapatmak slippage
     # yaratıyordu (ZKTRY: stop 0.4915, fill 0.48).
     VELOCITY_TRAIL_INTRABAR = os.getenv("VELOCITY_TRAIL_INTRABAR", "true").lower() == "true"
+    # Avize çıkışı (2026-10-17): kâr kilidi kurulduktan sonra stop,
+    # son N barın tepesinden ATR×çarpan kadar aşağı taşınır. Sabit TP durur;
+    # fiyat hedefe gitmeden geri dönerse avize daha erken keser.
+    # 7 gün replay (2974 işlem): avize, sabit hedefe göre EV'yi -0.413'ten -0.423'e
+    # çekti. Kod durur; varsayılan kapalı. Açmak: CHANDELIER_EXIT_ENABLED=true.
+    CHANDELIER_EXIT_ENABLED = os.getenv("CHANDELIER_EXIT_ENABLED", "false").lower() == "true"
+    CHANDELIER_LENGTH = max(5, int(os.getenv("CHANDELIER_LENGTH", "22")))
+    CHANDELIER_ATR_MULT = float(os.getenv("CHANDELIER_ATR_MULT", "3.0"))
+    # Aşırı long fonlama (8 saatlik kesir). 0.0004 = derivatives CROWDED_LONG.
+    # Tasfiye kademesi bu borsanın spot mumunda yok; veto onun vekilidir.
+    VELOCITY_FUNDING_VETO = os.getenv("VELOCITY_FUNDING_VETO", "true").lower() == "true"
+    VELOCITY_FUNDING_CROWDED = float(os.getenv("VELOCITY_FUNDING_CROWDED", "0.0004"))
+    # Saatlik göreli hacim: aynı UTC saatinin geçmiş günlerine göre.
+    # Bilinmiyorsa (yeterli gün yok) aday elenmez.
+    VELOCITY_RVOL_GATE = os.getenv("VELOCITY_RVOL_GATE", "true").lower() == "true"
+    VELOCITY_RVOL_MIN = float(os.getenv("VELOCITY_RVOL_MIN", "0.70"))
+    VELOCITY_RVOL_MIN_SAMPLES = max(3, int(os.getenv("VELOCITY_RVOL_MIN_SAMPLES", "4")))
     # Maksimum tutma süresi (dk): 30dk sonra kapanıştan çık — kâr erimesini önler.
     VELOCITY_MAX_HOLD_MIN = int(os.getenv("VELOCITY_MAX_HOLD_MIN", "30"))
     # UZUN UFUK (2026-10-13): 30dk/60dk profilleri. Ufuk büyüdükçe tutma süresi

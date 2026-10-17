@@ -590,6 +590,15 @@ async def detect_velocity_candidates(args: dict | None = None, *, horizon_minute
             logger.warning("velocity scan: sembol hedef durumu ön yüklemesi: %s", exc)
             target_states = {}
 
+    funding_by_base: dict[str, float] = {}
+    if getattr(config, "VELOCITY_FUNDING_VETO", False):
+        try:
+            from app.derivatives_service import funding_rates_by_base
+            funding_by_base = await funding_rates_by_base()
+        except Exception as exc:
+            logger.warning("velocity scan: fonlama haritası alınamadı: %s", exc)
+            funding_by_base = {}
+
     sem = asyncio.Semaphore(6)
 
     async def scan_one(symbol: str) -> dict | None:
@@ -1178,6 +1187,30 @@ async def detect_velocity_candidates(args: dict | None = None, *, horizon_minute
             except (TypeError, ValueError):
                 pass
 
+            hourly_rvol = None
+            funding_rate = funding_by_base.get(symbol[:-3] if symbol.endswith("TRY") else (
+                symbol[:-4] if symbol.endswith("USDT") else symbol))
+            if passes and getattr(config, "VELOCITY_RVOL_GATE", False):
+                try:
+                    from app.radar_addons import hourly_rvol_from_klines
+                    hour_rows = await _fetch_cached(symbol, "1h", 24 * 8)
+                    hourly_rvol = hourly_rvol_from_klines(
+                        hour_rows, now_ms, int(getattr(config, "VELOCITY_RVOL_MIN_SAMPLES", 4)))
+                    rvol_min = float(getattr(config, "VELOCITY_RVOL_MIN", 0.70))
+                    if hourly_rvol is not None and hourly_rvol < rvol_min:
+                        passes = False
+                        block_reason = f"rvol_dusuk:{hourly_rvol:.2f}<{rvol_min:.2f}"
+                except Exception as exc:
+                    logger.debug("saatlik hacim %s: %s", symbol, exc)
+                    hourly_rvol = None
+            if passes and getattr(config, "VELOCITY_FUNDING_VETO", False):
+                from app.radar_addons import crowded_long_reason
+                fund_reason = crowded_long_reason(
+                    funding_rate, float(getattr(config, "VELOCITY_FUNDING_CROWDED", 0.0004)))
+                if fund_reason:
+                    passes = False
+                    block_reason = f"{fund_reason}:{float(funding_rate):.6f}"
+
             return {"symbol": symbol, "price": price, "volume_ratio": round(volume_ratio, 2),
                     "atr_pct": round(atr_pct, 3),
                     "bb_width_pct": round(bb_width, 2) if bb_width else None,
@@ -1193,6 +1226,8 @@ async def detect_velocity_candidates(args: dict | None = None, *, horizon_minute
                     "ret3_pct": round(ret3, 3),
                     "pool_source": pool_source.get(symbol, "unknown"),
                     "change_24h": _change_24h.get(symbol),
+                    "hourly_rvol": round(hourly_rvol, 3) if hourly_rvol is not None else None,
+                    "funding_rate": funding_rate,
                     "velocity_score": velocity_score, "passes": passes,
                     "block_reason": block_reason,
                     # Warm şeridi: `passes=True` iken yukarıdaki guard yüzünden

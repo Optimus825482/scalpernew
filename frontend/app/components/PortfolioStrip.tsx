@@ -2,7 +2,7 @@
 
 import { usePoll } from "../lib/hooks";
 import { formatPct, formatTL } from "../lib/format";
-import type { BinancePositions, BinanceSettings, DashboardSummary, PortfolioSummary } from "../lib/types";
+import type { BinancePositions, BinanceSettings } from "../lib/types";
 
 type BinanceDayTrades = { daily?: { realized_pnl_try?: number | null } };
 
@@ -23,8 +23,6 @@ export default function PortfolioStrip() {
   const binance = usePoll<BinanceSettings>("/api/binance/settings", 30_000);
   const configured = Boolean(binance.data?.configured);
 
-  const summary = usePoll<DashboardSummary>(configured ? "/api/dashboard/summary" : null, 15_000);
-  const portfolio = usePoll<PortfolioSummary>(configured ? "/api/portfolio/summary" : null, 15_000);
   const realPositions = usePoll<BinancePositions>(configured ? "/api/binance/positions" : null, 30_000);
   const today = usePoll<BinanceDayTrades>(configured ? `/api/binance/trades-day?date=${istanbulDate()}` : null, 120_000, 30_000);
 
@@ -46,13 +44,13 @@ export default function PortfolioStrip() {
     {
       label: "Toplam Portföy",
       value: totalValue != null ? formatTL(totalValue) : "…",
-      detail: `${summary.data?.portfolio?.open_positions ?? 0} açık işlem`,
+      detail: `${(realPositions.data?.holdings || []).filter((h) => h.asset !== "TRY" && Number(h.total) > 0).length} açık varlık`,
       valueTone: "text-ink-900",
     },
     {
       label: "Serbest Bakiye",
       value: tryFree != null ? formatTL(tryFree) : "…",
-      detail: portfolio.data?.metrics ? `Kapalı ${portfolio.data.metrics.closed_trades} işlem · TRY` : "Kullanılabilir TRY",
+      detail: "Kullanılabilir TRY",
       valueTone: "text-ink-900",
     },
     {

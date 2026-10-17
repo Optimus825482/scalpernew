@@ -6,6 +6,7 @@ import { usePoll } from "../lib/hooks";
 import { fmtDateTime, formatFixed, formatPrice, formatSignedTL } from "../lib/format";
 import { baseAsset } from "../lib/opportunity";
 import type { BinanceSettings } from "../lib/types";
+import { useAuth } from "../lib/auth";
 import { Badge, Card, EmptyState, SectionHeader, Skeleton } from "../components/ui";
 import { downloadCsv, toCsv } from "../lib/csv";
 
@@ -123,15 +124,17 @@ export default function GecmisIslemlerPage() {
       </div>
     </Card>}
 
-    <PerformanceSection settingsConfigured={settings.data?.configured} />
+    <PerformanceSection />
     <JournalSection />
   </div>;
 }
 
-/** Portföy performans analitiği: equity eğrisi + kâr kalitesi metrikleri (paper). */
-function PerformanceSection({ settingsConfigured }: { settingsConfigured?: boolean }) {
-  const curve = usePoll<EquityCurve>("/api/portfolio/equity-curve", 60_000);
-  const data = curve.data;
+/** Portföy performans analitiği: equity eğrisi. Yalnız admin; paper defterinden. */
+function PerformanceSection() {
+  const { role } = useAuth();
+  const isAdmin = String(role || "").toLowerCase() === "admin";
+  const curve = usePoll<{ curve?: EquityCurve }>(isAdmin ? "/api/portfolio/equity-curve" : null, 60_000);
+  const data = curve.data?.curve;
 
   const path = useMemo(() => {
     const points = data?.points || [];
@@ -146,6 +149,7 @@ function PerformanceSection({ settingsConfigured }: { settingsConfigured?: boole
     return points.map((point, i) => `${i === 0 ? "M" : "L"}${(i * stepX).toFixed(1)},${(height - ((point.equity - min) / span) * height).toFixed(1)}`).join(" ");
   }, [data?.points]);
 
+  if (!isAdmin) return null;
   if (curve.loading && !data) return <Skeleton className="h-48" />;
   if (curve.error && !data) return null;
   if (!data || data.closed_trades === 0) return null;
@@ -163,7 +167,7 @@ function PerformanceSection({ settingsConfigured }: { settingsConfigured?: boole
       <SectionHeader
         eyebrow="Portföy Performansı"
         title="Equity eğrisi ve kâr kalitesi"
-        description={`Kapanan ${data.closed_trades} paper işlemden hesaplanır (salt-okunur). ${settingsConfigured ? "" : "Not: gerçek hesap işlemleri yukarıdaki gün filtresindedir."}`}
+        description={`Kapanan ${data.closed_trades} paper işlemden hesaplanır. Gerçek hesap dolumları yukarıdaki gün filtresindedir.`}
       />
       <div className="mt-3 grid gap-3 sm:grid-cols-5">
         {metrics.map((metric) => (

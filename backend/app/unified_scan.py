@@ -404,6 +404,7 @@ async def combined_scan_rows() -> list[dict]:
             "change_pct": (c.get("source_evidence") or {}).get("return_1m_pct"),
             "return_1m_pct": (c.get("source_evidence") or {}).get("return_1m_pct"),
             "volume_burst": (c.get("source_evidence") or {}).get("volume_burst"),
+            "volume_ratio": c.get("volume_ratio") if c.get("volume_ratio") is not None else (c.get("source_evidence") or {}).get("volume_burst"),
             "detected_at": (c.get("source_evidence") or {}).get("detected_at") or time.time(),
             "target_pct": c.get("target_pct"),
             "horizon_minutes": c.get("horizon_minutes"),

@@ -6,6 +6,7 @@ import { formatPct, formatPrice } from "../lib/format";
 import type { OpportunityView } from "../lib/opportunity";
 import { useWatchlist } from "../lib/watchlist";
 import { usePriceWatch } from "../lib/priceWatch";
+import { elapsedLabel, signalBasePrice, signalSeenAt } from "../lib/livePrices";
 import { SourceBadges } from "./ui";
 import MarketChart from "./MarketChart";
 
@@ -19,21 +20,40 @@ function OpportunityCard({
   selected,
   onSelect,
   onQuickBuy,
+  livePrice = null,
 }: {
   rank: number;
   item: OpportunityView;
   selected: boolean;
   onSelect: () => void;
   onQuickBuy?: (symbol: string, defaultAmountTry?: number) => void;
+  livePrice?: number | null;
 }) {
-  const { potentialPct, changePct, strength, price, horizonMinutes, volumeRatio } = item;
+  const { potentialPct, strength, price, horizonMinutes, volumeRatio } = item;
   const [chartOpen, setChartOpen] = useState(false);
   const [quickMenuOpen, setQuickMenuOpen] = useState(false);
+  const [nowSec, setNowSec] = useState(() => Date.now() / 1000);
+  const [seenAt, setSeenAt] = useState<number | null>(null);
+  const [basePrice, setBasePrice] = useState<number | null>(null);
   const { isFavorite, toggleFavorite } = useWatchlist();
-  const { watch, unwatch, isWatched } = usePriceWatch();
+  const { entries, watch, unwatch, isWatched } = usePriceWatch();
 
   const favorited = isFavorite(item.symbol);
   const watched = isWatched(item.symbol);
+  const watchEntry = entries.find((entry) => entry.symbol === item.symbol);
+  const shownPrice = livePrice != null && livePrice > 0 ? livePrice : price;
+  const signalPrice = basePrice ?? price;
+  const livePct = signalPrice != null && shownPrice != null && signalPrice > 0
+    ? ((shownPrice - signalPrice) / signalPrice) * 100
+    : null;
+  const watchPct = watchEntry && shownPrice != null && watchEntry.price > 0
+    ? ((shownPrice - watchEntry.price) / watchEntry.price) * 100
+    : null;
+  const targetPct = item.targetPct ?? potentialPct;
+  const targetPrice = item.ceilingPrice
+    ?? item.potentialPrice
+    ?? (signalPrice != null && targetPct != null ? signalPrice * (1 + targetPct / 100) : null);
+  const targetHit = targetPrice != null && shownPrice != null && shownPrice >= targetPrice;
   const interval = chartInterval(horizonMinutes);
   const chartUrl = `/grafik?symbol=${encodeURIComponent(item.symbol)}&interval=${interval}`;
 
@@ -46,6 +66,16 @@ function OpportunityCard({
       : score >= 55
         ? { ring: "border-amber-300", text: "text-amber-600", bg: "bg-amber-50", label: "text-amber-700/80" }
         : { ring: "border-line", text: "text-ink-700", bg: "bg-canvas", label: "text-ink-400" };
+
+  useEffect(() => {
+    setSeenAt(signalSeenAt(item.symbol, item.createdAt));
+    setBasePrice(signalBasePrice(item.symbol, price));
+  }, [item.symbol, item.createdAt, price]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowSec(Date.now() / 1000), 15_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (!chartOpen) return;
@@ -110,11 +140,11 @@ function OpportunityCard({
                 {item.base} <span className="text-xs font-normal text-ink-400">/ TRY</span>
               </p>
               <div className="mt-1 flex items-baseline gap-2">
-                <span className="font-mono text-lg font-semibold text-ink-900">{formatPrice(price)}</span>
-                {changePct != null && (
-                  <span className={`font-mono text-xs font-semibold ${changePct >= 0 ? "text-gain" : "text-loss"}`}>
-                    {changePct >= 0 ? "+" : ""}
-                    {formatPct(changePct, 1)}
+                <span className="font-mono text-lg font-semibold text-ink-900">{formatPrice(shownPrice)}</span>
+                {livePct != null && (
+                  <span className={`font-mono text-xs font-semibold ${livePct >= 0 ? "text-gain" : "text-loss"}`}>
+                    {livePct >= 0 ? "+" : ""}
+                    {formatPct(livePct, 2)}
                   </span>
                 )}
               </div>
@@ -161,6 +191,23 @@ function OpportunityCard({
           {item.sourceEvidence.rsi7 != null && <p className="mt-1 text-[10px] text-ink-500">Snapback kanıtı: RSI7 {String(item.sourceEvidence.rsi7)} · RSI14 {String(item.sourceEvidence.rsi14)}{item.stopLoss != null ? ` · Stop ${formatPrice(item.stopLoss)} (${formatPct(-(item.stopLossPct ?? 0), 1)})` : ""}</p>}
           {item.sourceEvidence.return_1m_pct != null && <p className="mt-1 text-[10px] text-ink-500">Nabız kanıtı: 1 dk {formatPct(Number(item.sourceEvidence.return_1m_pct), 2)} · hacim {Number(item.sourceEvidence.volume_burst ?? 0).toFixed(1)}×</p>}
           {item.scoreComponents.length > 0 && <p className="mt-1 text-[10px] text-ink-400">Skor kanıtı: {item.scoreComponents.map(({ label, value }) => `${label} ${Math.round(value)}`).join(" · ")}</p>}
+          <p className="mt-2 text-[11px] leading-snug text-ink-600">
+            Bildirimden beri <span className="font-mono font-semibold text-ink-800">{seenAt == null ? "…" : elapsedLabel(nowSec - seenAt)}</span>
+            {" · "}
+            anlık{" "}
+            <span className={`font-mono font-semibold ${livePct == null ? "text-ink-500" : livePct >= 0 ? "text-gain" : "text-loss"}`}>
+              {livePct == null ? "—" : `${livePct >= 0 ? "+" : ""}${livePct.toFixed(2)}%`}
+            </span>
+            {" · "}
+            <span className={targetHit ? "font-semibold text-gain" : "text-ink-500"}>
+              {targetPrice == null ? "hedef yok" : targetHit ? "hedefe ulaştı" : `hedefe ulaşmadı (${formatPrice(targetPrice)})`}
+            </span>
+          </p>
+          {watched && watchPct != null && (
+            <p className="mt-1 text-[11px] text-emerald-700">
+              İzleme {watchPct >= 0 ? "+" : ""}{watchPct.toFixed(2)}% · alma fiyatı {formatPrice(watchEntry?.price)}
+            </p>
+          )}
         </div>
 
         {/* AKSİYON BUTONLARI: HIZLI İŞLEM VE GRAFİK (mobil dokunuş dostu) */}
@@ -175,7 +222,7 @@ function OpportunityCard({
               className="flex min-h-[2.5rem] items-center justify-center gap-1 rounded-lg bg-accent px-2 text-[11px] font-semibold text-white shadow-sm transition-colors hover:bg-accent/90 sm:text-xs"
             >
               <span>⚡</span>
-              <span className="truncate">Panele aktar</span>
+              <span className="truncate">Alım Yap</span>
             </button>
 
             <button
@@ -212,37 +259,39 @@ function OpportunityCard({
           <div className="grid grid-cols-2 gap-1.5">
             <button
               type="button"
-              onClick={onSelect}
-              className="inline-flex min-h-[2.25rem] items-center justify-center rounded-lg border border-line bg-white px-2 text-xs font-medium text-ink-700 transition-colors hover:border-accent hover:text-accent"
+              onClick={() => toggleFavorite(item.symbol)}
+              className={`inline-flex min-h-[2.25rem] items-center justify-center rounded-lg border px-2 text-xs font-semibold transition-colors ${
+                favorited
+                  ? "border-amber-300 bg-amber-50 text-amber-700"
+                  : "border-line bg-white text-ink-700 hover:border-amber-400 hover:text-amber-700"
+              }`}
             >
-              Formu Aç
+              {favorited ? "★ Favoride" : "☆ Favorilere Ekle"}
             </button>
             <button
               type="button"
-              onClick={() => setChartOpen(true)}
-              aria-haspopup="dialog"
-              className="inline-flex min-h-[2.25rem] items-center justify-center rounded-lg border border-accent/25 bg-accent-soft px-2 text-xs font-semibold text-accent transition-colors hover:bg-accent/15"
+              onClick={() => {
+                if (watched) unwatch(item.symbol);
+                else if (shownPrice != null) watch(item.symbol, shownPrice);
+              }}
+              disabled={!watched && shownPrice == null}
+              className={`inline-flex min-h-[2.25rem] items-center justify-center gap-1.5 rounded-lg border px-2 text-xs font-semibold transition-colors ${
+                watched
+                  ? "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                  : "border-line bg-white text-ink-700 hover:border-emerald-400 hover:text-emerald-700"
+              } disabled:opacity-50`}
+              title={watched ? "İzlemeden çıkar" : shownPrice != null ? `${formatPrice(shownPrice)} fiyatından izlemeye al` : "Fiyat yok"}
             >
-              ▥ Grafik
+              {watched ? "✓ İzlemede" : "◎ İzlemeye Al"}
             </button>
           </div>
-
-          {/* İZLEMEYE AL: o anki fiyattan izleme başlatır/bırakır; izlenenler ana sayfa üst şeridinde % değişimle izlenir */}
           <button
             type="button"
-            onClick={() => {
-              if (watched) unwatch(item.symbol);
-              else if (price != null) watch(item.symbol, price);
-            }}
-            disabled={!watched && price == null}
-            className={`inline-flex min-h-[2.25rem] w-full items-center justify-center gap-1.5 rounded-lg border px-2 text-xs font-semibold transition-colors ${
-              watched
-                ? "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                : "border-line bg-white text-ink-700 hover:border-emerald-400 hover:text-emerald-700"
-            } disabled:opacity-50`}
-            title={watched ? "İzlemeden çıkar" : price != null ? `${formatPrice(price)} fiyatından izlemeye al` : "Fiyat yok"}
+            onClick={() => setChartOpen(true)}
+            aria-haspopup="dialog"
+            className="inline-flex min-h-[2.25rem] w-full items-center justify-center rounded-lg border border-accent/25 bg-accent-soft px-2 text-xs font-semibold text-accent transition-colors hover:bg-accent/15"
           >
-            {watched ? "✓ İzlemede · Bırak" : "◎ İzlemeye Al"}
+            ▥ Grafik
           </button>
         </div>
       </article>
@@ -315,5 +364,6 @@ export default memo(
   (previous, next) =>
     previous.rank === next.rank &&
     previous.selected === next.selected &&
+    previous.livePrice === next.livePrice &&
     previous.item === next.item,
 );

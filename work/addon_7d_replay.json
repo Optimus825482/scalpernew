@@ -1,0 +1,38 @@
+{
+  "mevcut_tp": {
+    "n": 2974,
+    "ev": -0.413,
+    "median": -0.463,
+    "win": 38.8
+  },
+  "avize": {
+    "n": 2974,
+    "ev": -0.423,
+    "median": -0.576,
+    "win": 35.7
+  },
+  "fonlama_veto_tp": {
+    "n": 2974,
+    "ev": -0.413,
+    "median": -0.463,
+    "win": 38.8
+  },
+  "rvol_veto_tp": {
+    "n": 2268,
+    "ev": -0.402,
+    "median": -0.455,
+    "win": 40.0
+  },
+  "ucu_birden_avize": {
+    "n": 2268,
+    "ev": -0.41,
+    "median": -0.592,
+    "win": 36.8
+  },
+  "atlandi": {
+    "mum": 0,
+    "fonlama_yok": 236,
+    "rvol_yok": 1
+  },
+  "aday": 2974
+}

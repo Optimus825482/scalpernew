@@ -1604,8 +1604,10 @@ async def get_auto_paper_settings() -> dict:
 
 
 @router.get("/api/auto-paper/settings")
-async def get_settings_endpoint():
-    """Otonom paper trade ayarlarını döndür."""
+async def get_settings_endpoint(request: Request):
+    """Otonom paper trade ayarlarını döndür. Yalnız admin görür."""
+    from app.api_common import require_admin as _require_admin
+    _require_admin(request)
     settings = await get_auto_paper_settings()
     state = dict(_AUTO_PAPER_STATE)
     return {"paper_only": True, "settings": settings, "state": state}
@@ -1693,13 +1695,16 @@ async def update_settings_endpoint(payload: dict, request: Request):
 # ---------------------------------------------------------------------------
 @router.get("/api/auto-paper/trades")
 async def list_trades_endpoint(
+    request: Request,
     status: str | None = None,
     limit: int = 100,
     offset: int = 0,
     day: str | None = None,
     include_archived: bool = False,
 ):
-    """Otonom paper trade kayıtlarını listele. Açık pozisyonlara güncel fiyat eklenir."""
+    """Otonom paper trade kayıtlarını listele. Yalnız admin. Açık pozisyonlara güncel fiyat eklenir."""
+    from app.api_common import require_admin as _require_admin
+    _require_admin(request)
     limit = max(1, min(int(limit), 500))
     offset = max(0, int(offset))
     # P0-3 (2026-10-07): AÇIK pozisyon sorgusu rapor görünüm sınırını YOK SAYAR
@@ -1744,12 +1749,14 @@ async def list_trades_endpoint(
 
 
 @router.get("/api/auto-paper/stats")
-async def get_stats_endpoint(day: str | None = None, include_archived: bool = False):
-    """Otonom paper trade istatistikleri (seçilen gün / reset_at sonrasi; reset kapanışları hariç).
+async def get_stats_endpoint(request: Request, day: str | None = None, include_archived: bool = False):
+    """Otonom paper trade istatistikleri. Yalnız admin.
 
     `include_archived=True` → "arşivi göster": RAPOR BAŞLANGICI öncesi işlemler
     de KPI'lara sayılır. Varsayılan False → yalnız deploy sonrası işlemler.
     """
+    from app.api_common import require_admin as _require_admin
+    _require_admin(request)
     stats = await database.get_auto_paper_stats(
         day=day, ignore_reports_baseline=include_archived)
     reset_at = await database.get_reset_cutoff()
