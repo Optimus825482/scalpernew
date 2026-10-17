@@ -15,7 +15,8 @@ import { Button, Card, SectionHeader, Skeleton, Toggle } from "../components/ui"
  * olarak DB'ye yazılır; bir kez girildiğinde tekrar girilmez (maskeli gösterilir).
  */
 export default function AyarlarPage() {
-  const { username } = useAuth();
+  const { username, role } = useAuth();
+  const isAdmin = String(role || "").toLowerCase() === "admin";
   const profile = usePoll<Profile>("/api/profile", null);
   const binance = usePoll<BinanceSettings>("/api/binance/settings", 30_000);
   const [prefs, setPrefs] = useState<UserPreferences | null>(null);
@@ -36,6 +37,8 @@ export default function AyarlarPage() {
         <ProfileCard profile={profile} username={username} />
         <BinanceCard binance={binance} />
       </div>
+
+      {isAdmin && <ActiveListCard />}
 
       {prefsErr ? (
         <Card className="p-4 text-sm text-loss">Bildirim tercihleri alınamadı: {prefsErr}</Card>
@@ -114,6 +117,81 @@ function ProfileCard({ profile, username }: { profile: ReturnType<typeof usePoll
         </Button>
         {msg && <p className={`text-xs ${msg.tone === "gain" ? "text-gain" : "text-loss"}`}>{msg.text}</p>}
       </div>
+    </Card>
+  );
+}
+
+function ActiveListCard() {
+  const [limit, setLimit] = useState("40");
+  const [saved, setSaved] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ tone: "gain" | "loss"; text: string } | null>(null);
+
+  useEffect(() => {
+    getJSON<{ top_gainers_limit?: number }>("/api/config")
+      .then((body) => {
+        const current = Number(body.top_gainers_limit);
+        if (Number.isFinite(current) && current > 0) {
+          setLimit(String(current));
+          setSaved(current);
+        }
+      })
+      .catch(() => setMsg({ tone: "loss", text: "Aktif liste ayarı okunamadı." }));
+  }, []);
+
+  const next = Number(limit);
+  const valid = Number.isInteger(next) && next >= 1 && next <= 50;
+  const dirty = valid && next !== saved;
+
+  async function save() {
+    if (!valid) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await apiRequest(`${API_BASE}/api/config`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ top_gainers_limit: next }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.detail || `Kaydedilemedi (${res.status})`);
+      const stored = Number(body.top_gainers_limit ?? next);
+      setSaved(stored);
+      setLimit(String(stored));
+      setMsg({ tone: "gain", text: `Aktif liste ${stored} sembol olarak kaydedildi. Liste yenileniyor.` });
+    } catch (e) {
+      setMsg({ tone: "loss", text: e instanceof Error ? e.message : "Kaydedilemedi" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card className="p-5">
+      <SectionHeader
+        eyebrow="Piyasa"
+        title="Aktif sembol listesi"
+        description="İlk değer ortam değişkeninden gelir. Kaydettiğin sayı veritabanına yazılır ve sonraki açılışta oradan okunur. Düz, hacimsiz 5 dakikalık mumlar listeden elenir."
+      />
+      <div className="mt-3 flex flex-wrap items-end gap-3">
+        <label className="text-sm text-ink-700">
+          Liste boyutu
+          <input
+            type="number"
+            min={1}
+            max={50}
+            step={1}
+            value={limit}
+            onChange={(event) => setLimit(event.target.value)}
+            className="mt-1 block w-28 rounded-lg border border-line bg-white px-3 py-2 font-mono text-sm outline-none focus:border-accent"
+          />
+        </label>
+        <Button variant="primary" disabled={busy || !dirty} onClick={save}>
+          {busy ? "Kaydediliyor…" : "Kaydet"}
+        </Button>
+      </div>
+      <p className="mt-2 text-xs text-ink-400">1 ile 50 arası. Şu an kayıtlı: {saved ?? "…"}</p>
+      {msg && <p className={`mt-2 text-xs ${msg.tone === "gain" ? "text-gain" : "text-loss"}`}>{msg.text}</p>}
     </Card>
   );
 }

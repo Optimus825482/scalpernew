@@ -972,7 +972,12 @@ async def startup_services():
         try:
             persisted = json.loads(saved_config)
             for key, attr in CONFIG_FIELDS.items():
-                if key in persisted: setattr(config, attr, persisted[key])
+                if key not in persisted:
+                    continue
+                value = persisted[key]
+                if key == "top_gainers_limit":
+                    value = max(1, min(50, int(value)))
+                setattr(config, attr, value)
             if persisted.get("symbols"):
                 config.SYMBOLS = list(persisted["symbols"])
         except Exception as exc:
