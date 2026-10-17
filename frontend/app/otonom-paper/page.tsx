@@ -1,5 +1,6 @@
 "use client";
 
+import AppLink from "../components/AppLink";
 import { apiRequest } from "../lib/api";
 import { usePoll } from "../lib/hooks";
 import { useAuth } from "../lib/auth";
@@ -150,7 +151,9 @@ function TradeTable({ rows, onClose }: { rows: PaperTrade[]; onClose?: (trade: P
             const mark = trade.status === "open" ? trade.current_price : trade.exit_price;
             return (
               <tr key={trade.id} className="border-t border-line">
-                <td className="py-2 pr-3 font-mono font-semibold text-ink-900">{trade.symbol}</td>
+                <td className="py-2 pr-3 font-mono font-semibold text-ink-900">
+                  <AppLink href={`/grafik?symbol=${encodeURIComponent(trade.symbol)}&interval=5m`} className="hover:text-accent" title={`${trade.symbol} grafiğini aç`}>{trade.symbol}</AppLink>
+                </td>
                 <td className="py-2 pr-3 font-mono text-xs text-ink-500">{fmtDateTime(trade.exit_time || trade.entry_time)}</td>
                 <td className="py-2 pr-3 text-right font-mono">{formatPrice(trade.entry_price)}</td>
                 <td className="py-2 pr-3 text-right font-mono">{formatPrice(mark)}</td>

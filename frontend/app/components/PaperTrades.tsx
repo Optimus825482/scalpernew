@@ -27,6 +27,10 @@ type PaperTrade = {
 
 type PaperList = { trades?: PaperTrade[]; paper_only?: boolean };
 
+function chartHref(symbol: string) {
+  return `/grafik?symbol=${encodeURIComponent(symbol)}&interval=5m`;
+}
+
 function pnlOf(trade: PaperTrade): { try: number | null; pct: number | null } {
   if (trade.status !== "open") {
     return {
@@ -92,7 +96,9 @@ export default function PaperTrades() {
                 const tone = pnl.try == null ? "text-ink-500" : pnl.try >= 0 ? "text-gain" : "text-loss";
                 return (
                   <tr key={trade.id} className="border-t border-line">
-                    <td className="py-2 pr-3 font-mono font-semibold text-ink-900">{trade.symbol}</td>
+                    <td className="py-2 pr-3 font-mono font-semibold text-ink-900">
+                      <AppLink href={chartHref(trade.symbol)} className="hover:text-accent" title={`${trade.symbol} grafiğini aç`}>{trade.symbol}</AppLink>
+                    </td>
                     <td className="py-2 pr-3 font-mono text-xs text-ink-500">{fmtDateTime(trade.entry_time)}</td>
                     <td className="py-2 pr-3 text-right font-mono">{formatPrice(trade.entry_price)}</td>
                     <td className="py-2 pr-3 text-right font-mono">{formatPrice(trade.current_price)}</td>
@@ -119,7 +125,7 @@ export default function PaperTrades() {
               const tone = pnl.try == null ? "text-ink-500" : pnl.try >= 0 ? "text-gain" : "text-loss";
               return (
                 <li key={trade.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-line py-1.5">
-                  <span className="font-mono font-semibold text-ink-800">{trade.symbol}</span>
+                  <AppLink href={chartHref(trade.symbol)} className="font-mono font-semibold text-ink-800 hover:text-accent" title={`${trade.symbol} grafiğini aç`}>{trade.symbol}</AppLink>
                   <Badge tone="neutral">{trade.exit_reason || "kapandı"}</Badge>
                   <span className={`font-mono ${tone}`}>{pnl.try == null ? "—" : formatSignedTL(pnl.try)}</span>
                   <span className="font-mono text-ink-400">{fmtDateTime(trade.exit_time || trade.entry_time)}</span>
