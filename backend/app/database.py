@@ -5453,6 +5453,30 @@ async def list_symbol_signal_marks(symbol: str, limit: int = 40) -> list[dict]:
     return await _run_db(op)
 
 
+async def get_monitoring_notifications_by_ids(notification_ids: list[int]) -> dict[int, dict]:
+    """Açık paper satırları için bildirimleri tek sorguda getirir."""
+    ids = []
+    for raw in notification_ids or []:
+        try:
+            ids.append(int(raw))
+        except (TypeError, ValueError):
+            continue
+    if not ids:
+        return {}
+
+    def op(conn):
+        marks = ",".join(["?"] * len(ids))
+        rows = conn.execute(
+            "SELECT id, symbol, score, target_pct, price, expected_price, "
+            "horizon_minutes, detected_at, mode "
+            f"FROM monitoring_notifications WHERE id IN ({marks})",
+            tuple(ids),
+        ).fetchall()
+        return {int(row["id"]): dict(row) for row in rows}
+
+    return await _run_db(op)
+
+
 async def get_monitoring_notification_by_id(notification_id: int) -> dict | None:
     """Bildirim ID'sine göre monitoring bildirim kaydını getir."""
     def op(conn):

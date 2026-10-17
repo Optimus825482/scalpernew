@@ -30,7 +30,14 @@ type PaperStats = {
   cash_try?: number;
   initial_try?: number;
   balance_pct?: number;
-  stats?: { total_pnl_try?: number; winning?: number; losing?: number; open?: number; closed?: number };
+  stats?: {
+    total_pnl_try?: number;
+    winning?: number;
+    losing?: number;
+    open?: number;
+    closed?: number;
+    win_rate?: number;
+  };
 };
 
 function money(trade: PaperTrade): { try: number | null; pct: number | null } {
@@ -53,7 +60,7 @@ function money(trade: PaperTrade): { try: number | null; pct: number | null } {
 export default function OtonomPaperPage() {
   const { role } = useAuth();
   const isAdmin = String(role || "").toLowerCase() === "admin";
-  const book = usePoll<PaperStats>(isAdmin ? "/api/auto-paper/stats" : null, 15_000);
+  const book = usePoll<PaperStats>(isAdmin ? "/api/auto-paper/stats?day=all" : null, 15_000);
   const open = usePoll<PaperList>(isAdmin ? "/api/auto-paper/trades?status=open&limit=50" : null, 15_000);
   const closed = usePoll<PaperList>(isAdmin ? "/api/auto-paper/trades?status=closed&limit=40" : null, 30_000);
 
@@ -72,7 +79,17 @@ export default function OtonomPaperPage() {
   const cash = book.data?.cash_try;
   const initial = book.data?.initial_try ?? 10000;
   const pct = book.data?.balance_pct ?? 30;
-  const openValue = openRows.reduce((sum, trade) => sum + Number(trade.order_value_try || 0), 0);
+  const openValue = openRows.reduce((sum, trade) => {
+    const qty = Number(trade.quantity || 0);
+    const mark = Number(trade.current_price || trade.entry_price || 0);
+    if (qty > 0 && mark > 0) return sum + qty * mark;
+    return sum + Number(trade.order_value_try || 0);
+  }, 0);
+  const equity = cash == null ? null : cash + openValue;
+  const openPnl = openRows.reduce((sum, trade) => sum + (money(trade).try ?? 0), 0);
+  const stats = book.data?.stats;
+  const winRate = stats?.win_rate ?? (stats?.closed ? ((stats.winning ?? 0) / stats.closed) * 100 : 0);
+  const realized = stats?.total_pnl_try ?? 0;
 
   return (
     <div className="space-y-5">
@@ -82,33 +99,39 @@ export default function OtonomPaperPage() {
         description="Sistem sinyal ürettiğinde serbest nakdin yüzde otuzu ile sanal alım açar. Giriş ve çıkış komisyonu düşülür. Karttaki Alım Yap gerçek hesap paneline gider; bu deftere yazmaz."
       />
 
-      {book.loading && !book.data ? <Skeleton className="h-24" /> : (
-        <div className="grid gap-3 sm:grid-cols-4">
-          <Card className="p-4">
-            <p className="odak-kicker">Serbest bakiye</p>
-            <p className="mt-1 font-mono text-xl font-bold text-ink-900">{cash == null ? "…" : formatTL(cash)}</p>
-            <p className="text-[11px] text-ink-400">Başlangıç {formatTL(initial)}</p>
-          </Card>
-          <Card className="p-4">
-            <p className="odak-kicker">Açık tutar</p>
-            <p className="mt-1 font-mono text-xl font-bold text-ink-900">{formatTL(openValue)}</p>
-            <p className="text-[11px] text-ink-400">{openRows.length} açık işlem</p>
-          </Card>
-          <Card className="p-4">
-            <p className="odak-kicker">Alım payı</p>
-            <p className="mt-1 font-mono text-xl font-bold text-ink-900">%{pct}</p>
-            <p className="text-[11px] text-ink-400">serbest TL üzerinden</p>
-          </Card>
-          <Card className="p-4">
-            <p className="odak-kicker">Bugünkü kapanan net</p>
-            <p className={`mt-1 font-mono text-xl font-bold ${(book.data?.stats?.total_pnl_try ?? 0) >= 0 ? "text-gain" : "text-loss"}`}>{formatSignedTL(book.data?.stats?.total_pnl_try)}</p>
-            <p className="text-[11px] text-ink-400">{book.data?.stats?.winning ?? 0} kâr · {book.data?.stats?.losing ?? 0} zarar</p>
-          </Card>
-        </div>
-      )}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Card className="p-4">
+          <p className="odak-kicker">Toplam portföy</p>
+          <p className="mt-1 font-mono text-xl font-bold text-ink-900">{equity == null ? "…" : formatTL(equity)}</p>
+          <p className="text-[11px] text-ink-400">Serbest nakit + açık pozisyonların güncel değeri · başlangıç {formatTL(initial)}</p>
+        </Card>
+        <Card className="p-4">
+          <p className="odak-kicker">Serbest bakiye</p>
+          <p className="mt-1 font-mono text-xl font-bold text-ink-900">{cash == null ? "…" : formatTL(cash)}</p>
+          <p className="text-[11px] text-ink-400">Alım payı %{pct} · açık pozisyon {formatTL(openValue)}</p>
+        </Card>
+        <Card className="p-4">
+          <p className="odak-kicker">Otonom başarı</p>
+          <p className={`mt-1 font-mono text-xl font-bold ${winRate >= 50 ? "text-gain" : "text-ink-900"}`}>%{Number.isFinite(winRate) ? winRate.toFixed(1) : "0.0"}</p>
+          <p className="text-[11px] text-ink-400">{stats?.winning ?? 0} kâr · {stats?.losing ?? 0} zarar · {stats?.closed ?? 0} kapanan</p>
+        </Card>
+        <Card className="p-4">
+          <p className="odak-kicker">Kapanan net K/Z</p>
+          <p className={`mt-1 font-mono text-xl font-bold ${realized >= 0 ? "text-gain" : "text-loss"}`}>{book.data ? formatSignedTL(realized) : "…"}</p>
+          <p className="text-[11px] text-ink-400">Komisyon düşülmüş gerçekleşen sonuç</p>
+        </Card>
+      </div>
 
       <Card className="p-4">
-        <SectionHeader eyebrow="Açık" title="Açık paper işlemler" />
+        <SectionHeader
+          eyebrow="Açık"
+          title="Açık paper işlemler"
+          actions={
+            <span className={`font-mono text-sm font-bold ${openPnl >= 0 ? "text-gain" : "text-loss"}`}>
+              Açık K/Z {openRows.length === 0 ? formatSignedTL(0) : formatSignedTL(openPnl)}
+            </span>
+          }
+        />
         {open.loading && !open.data ? <Skeleton className="mt-3 h-24" /> : openRows.length === 0 ? (
           <p className="mt-3 text-sm text-ink-500">Açık işlem yok. Bir sonraki arka plan taramasında eşiği geçen sinyal burada alım açar.</p>
         ) : (

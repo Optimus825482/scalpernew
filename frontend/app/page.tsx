@@ -40,7 +40,7 @@ export default function Home() {
   const [scanMessage, setScanMessage] = useState<string | null>(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const { favorites, isFavorite, toggleFavorite } = useWatchlist();
-  const scan = usePoll<UnifiedScanResponse>("/api/unified-scan/latest", 20_000, 30_000);
+  const scan = usePoll<UnifiedScanResponse>("/api/unified-scan/latest", 20_000, 8_000);
   const prefs = usePoll<{ preferences?: { min_score?: number } }>("/api/user/preferences", 60_000);
   const minScore = Math.max(0, Number(prefs.data?.preferences?.min_score ?? 0)) || 0;
 

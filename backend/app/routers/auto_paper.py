@@ -1769,17 +1769,14 @@ async def list_trades_endpoint(
         include_archived=include_archived, apply_reports_baseline=not _only_open
     )
     # Açık pozisyonlar için güncel ticker fiyatını ekle (frontend PnL hesabı için)
+    notif_ids = [int(t["notification_id"]) for t in trades if t.get("status") == "open" and t.get("notification_id")]
+    notifs = await database.get_monitoring_notifications_by_ids(notif_ids) if notif_ids else {}
     for t in trades:
         if t.get("status") == "open":
             ticker = market.get_ticker(str(t.get("symbol") or "").upper())
             t["current_price"] = float(ticker.get("last_price") or 0) if ticker else None
             nid = t.get("notification_id")
-            notif = None
-            if nid:
-                try:
-                    notif = await database.get_monitoring_notification_by_id(nid)
-                except Exception:
-                    notif = None
+            notif = notifs.get(int(nid)) if nid else None
             if notif:
                 t["notification_price"] = float(notif.get("price") or 0)
                 if not t.get("notification_expected_price"):
@@ -1810,16 +1807,18 @@ async def get_stats_endpoint(request: Request, day: str | None = None, include_a
     """
     from app.api_common import require_admin as _require_admin
     _require_admin(request)
-    stats = await database.get_auto_paper_stats(
-        day=day, ignore_reports_baseline=include_archived)
-    reset_at = await database.get_reset_cutoff()
-    cash = await database.ensure_cash_wallet()
+    stats, reset_at, cash, settings = await asyncio.gather(
+        database.get_auto_paper_stats(day=day, ignore_reports_baseline=include_archived),
+        database.get_reset_cutoff(),
+        database.get_wallet_balance(),
+        get_auto_paper_settings(),
+    )
     return {
         "paper_only": True,
         "day": day or "today",
-        "cash_try": round(cash, 2),
+        "cash_try": round(float(cash or 0), 2),
         "initial_try": config.INITIAL_BALANCE_TRY,
-        "balance_pct": float((await get_auto_paper_settings()).get("balance_pct") or 30),
+        "balance_pct": float((settings or {}).get("balance_pct") or 30),
         "stats": stats,
         "reset_at": reset_at,
         "include_archived": include_archived,

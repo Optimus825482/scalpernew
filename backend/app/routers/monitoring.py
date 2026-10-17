@@ -4296,11 +4296,21 @@ async def unified_scan_latest(request: Request):
         raise HTTPException(status_code=401, detail="Kimlik doğrulama gerekli")
     generated_at = float(_unified_scan_cache.get("generated_at") or 0)
     candidates = _unified_scan_cache.get("candidates") or []
-    if not generated_at or time.time() - generated_at > 20:
+    # 20 sn çok sıktı: tarama 30 sn'den uzun sürdüğü için anasayfa açıkken
+    # sunucu neredeyse sürekli tarıyordu ve paper sayfası da kuyrukta kalıyordu.
+    if not generated_at or time.time() - generated_at > 90:
         _kick_unified_scan_refresh()
     return {"run": {"scan_id": None, "generated_at": generated_at,
                      "algorithm_version": "combined-v1", "candidates": candidates,
                      "count": len(candidates)}}
+
+
+async def _open_paper_after_scan(candidates: list) -> None:
+    try:
+        from app.routers.auto_paper import open_from_scan_candidates
+        await open_from_scan_candidates(candidates)
+    except Exception as exc:
+        logger.debug("tarama sonrası paper açılışı: %s", exc)
 
 
 async def _refresh_unified_scan_async() -> None:
@@ -4311,15 +4321,13 @@ async def _refresh_unified_scan_async() -> None:
             # Kilit sırasında başka bir yol (manuel tarama/diğer görev) tazelediyse
             # tekrar tarama — çift taramayı önler.
             if _unified_scan_cache.get("generated_at") and \
-                    time.time() - float(_unified_scan_cache["generated_at"]) <= 20:
+                    time.time() - float(_unified_scan_cache["generated_at"]) <= 90:
                 return
             candidates = await _combined_scan_rows()
             _unified_scan_cache.update(generated_at=time.time(), candidates=candidates)
-            try:
-                from app.routers.auto_paper import open_from_scan_candidates
-                await open_from_scan_candidates(candidates)
-            except Exception as exc:
-                logger.debug("tarama sonrası paper açılışı: %s", exc)
+            # Paper açılışı kilidin DIŞINDA, ayrı görevde: tarama kilidi ve
+            # sayfa istekleri alım denemesini beklemesin.
+            asyncio.get_running_loop().create_task(_open_paper_after_scan(candidates))
     except Exception as exc:
         logger.debug("arka plan birleşik taraması başarısız: %s", exc)
     finally:
