@@ -918,7 +918,7 @@ class AutoPaperModeFilterTests(unittest.TestCase):
         self.assertIn("allowed_modes", defaults)
         self.assertIn("dedup_cooldown_minutes", defaults)
         self.assertEqual(defaults["allowed_modes"], ["trend_devam", "unified"])
-        self.assertEqual(defaults["dedup_cooldown_minutes"], 60.0)
+        self.assertEqual(defaults["dedup_cooldown_minutes"], 10.0)
 
 
 class AutoPaperP0P2FixTests(unittest.IsolatedAsyncioTestCase):

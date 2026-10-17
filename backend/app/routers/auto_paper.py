@@ -1640,9 +1640,8 @@ async def get_default_settings() -> dict:
         # BILDIRIM DEDUP (2026-10-07). Ayni sembolde kisa sure once giris
         # yapildiysa tekrar girmez (0 = kapali). Ayni sinyal 5 dakikada birden
         # fazla kanaldan geliyor; her biri ayri pozisyon aciyordu.
-        # OPTIMIZASYON: 60 dk. Canlida islem hacmi 107/gun -> 17/gun; ort.
-        # bozulmadan (-%0.20 -> +0.55% @30dk dedup) tekrarli islemler atilir.
-        "dedup_cooldown_minutes": 60.0,
+        # Aynı sembole yeniden giriş beklemesi. 2026-10-18: 60 dk → 10 dk.
+        "dedup_cooldown_minutes": 10.0,
     }
 
 
@@ -1893,6 +1892,11 @@ async def _apply_autonomous_book_once() -> None:
         settings = json.loads(raw or "{}")
         if not isinstance(settings, dict):
             settings = {}
+        stored_dedup = settings.get("dedup_cooldown_minutes")
+        if stored_dedup is None or float(stored_dedup) == 60.0:
+            settings["dedup_cooldown_minutes"] = 10.0
+            await database.set_llm_setting("auto_paper_settings", json.dumps(settings))
+            logger.info("otonom paper yeniden giriş beklemesi 10 dk")
         if settings.get("book_policy") == "10k-30":
             return
         settings["enabled"] = True
