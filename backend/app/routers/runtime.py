@@ -484,6 +484,44 @@ async def radar_loop():
             print(f"[Radar] otomatik tarama hatası: {exc}")
         await asyncio.sleep(config.GAINER_RADAR_INTERVAL_SEC)
 
+async def _select_moving_gainers(ranked: list[dict], limit: int) -> tuple[list[str], list[str]]:
+    """Sıralı adayları tara; art arda düz ve hacimsiz M5 şeridini atla.
+
+    Veri gelmezse sembol elenmez. Liste dolana kadar bir sonraki adaya geçilir.
+    """
+    selected: list[str] = []
+    skipped: list[str] = []
+    semaphore = asyncio.Semaphore(8)
+    now_ms = int(time.time() * 1000)
+
+    async def inspect(symbol: str) -> tuple[str, bool, str]:
+        async with semaphore:
+            try:
+                rows = await fetch_klines(symbol, "5m", limit=40)
+            except Exception as exc:
+                print(f"[Top Gainers] {symbol} M5 okunamadı, listede bırakıldı: {exc}", flush=True)
+                return symbol, False, "m5_okunamadi"
+            dead, reason = m5_tape_is_dead(rows, now_ms)
+            return symbol, dead, reason
+
+    pending = [str(row["symbol"]).upper() for row in ranked if row.get("symbol")]
+    cursor = 0
+    batch = 16
+    while len(selected) < limit and cursor < len(pending):
+        chunk = pending[cursor:cursor + batch]
+        cursor += batch
+        results = await asyncio.gather(*(inspect(symbol) for symbol in chunk))
+        for symbol, dead, reason in results:
+            if dead:
+                skipped.append(f"{symbol}({reason})")
+                continue
+            if symbol not in selected:
+                selected.append(symbol)
+            if len(selected) >= limit:
+                break
+    return selected, skipped
+
+
 async def refresh_top_gainer_symbols():
     """Refresh active TRY symbols from Binance TR's public 24h ticker data."""
     if not config.TOP_GAINERS_AUTO_ACTIVATE:
@@ -507,6 +545,12 @@ async def refresh_top_gainer_symbols():
     # iki eşzamanlı yenilemenin aynı sonucu görmesi sorun değildir —
     # kilidi tutacak tek şey sonraki saf hesap.
     open_symbols = set(analyzer.positions) | set((await database.load_positions()).keys())
+    paper_symbols: set[str] = set()
+    try:
+        paper_rows = await database.list_auto_paper_trades(status="open", apply_reports_baseline=False)
+        paper_symbols = {str(row.get("symbol") or "").upper() for row in paper_rows if row.get("symbol")}
+    except Exception as exc:
+        print(f"[Top Gainers] açık paper sembolleri okunamadı: {exc}", flush=True)
     async with _top_gainers_lock:
         ranked = []
         for item in all_tickers or []:
@@ -520,9 +564,12 @@ async def refresh_top_gainer_symbols():
                 continue
             ranked.append({"symbol": symbol, "change_pct": change, "quote_volume": volume})
         ranked.sort(key=lambda row: (row["change_pct"], row["quote_volume"]), reverse=True)
-        selected = [row["symbol"] for row in ranked[:config.TOP_GAINERS_LIMIT]]
-        active = list(dict.fromkeys(selected + sorted(open_symbols)))
         previous_active = set(str(symbol).upper() for symbol in market.symbols)
+    selected, skipped_flat = await _select_moving_gainers(ranked, config.TOP_GAINERS_LIMIT)
+    if skipped_flat:
+        print(f"[Top Gainers] M5 düz/hacimsiz elendi: {', '.join(skipped_flat[:12])}"
+              + ("…" if len(skipped_flat) > 12 else ""), flush=True)
+    active = list(dict.fromkeys(selected + sorted(open_symbols | paper_symbols)))
     if not active:
         raise RuntimeError("Binance TR top-gainer TRY listesi boş döndü")
     # Evreni güncelle: `config.SYMBOLS` + `market.symbols` TEK kapıdan
@@ -530,21 +577,16 @@ async def refresh_top_gainer_symbols():
     apply_symbol_universe(active, source="top_gainers")
     dropped_symbols = previous_active - set(active)
     if dropped_symbols:
-        # 2026-09-21 Erkan kararı: Sembol pasife alınırken/listeden düşerken
-        # varsa açık otonom paper pozisyonu kâr/zarara bakılmaksızın kapatılır.
-        # DENETİM (2026-09-26): bu DB yazma işlemi KİLİT DIŞINDA. Hata
-        # yakalansa da evren ataması yukarıda tamamlandığı için tutarlı kalır;
-        # kapanmayan pozisyon sonraki turda yeniden denenir.
+        # Liste rotasyonu paper kapatmaz. Grafik hâlâ canlıyken top-10'dan
+        # düşünce işlem symbol_deactivated oluyordu. Yalnız borsadan kalkan
+        # sembol kapatılır.
         try:
             from app.routers import auto_paper as _ap
-            # P0-3 (2026-10-07): pozisyon KAPATMA yolu — açık pozisyon rapor
-            # görünüm sınırına takılmamalı, yoksa düşen sembolün pozisyonu hiç
-            # kapanmaz (SL/TP yok, pozisyon sonsuza dek açık kalır).
             open_auto_trades = await database.list_auto_paper_trades(
                 status="open", apply_reports_baseline=False)
             for trade in open_auto_trades:
                 sym = str(trade.get("symbol") or "").upper()
-                if sym in dropped_symbols:
+                if sym in dropped_symbols and sym not in known_try:
                     trade_id = int(trade["id"])
                     tk = market.get_ticker(sym)
                     price = float(tk.get("last_price") or 0) if tk else 0
@@ -607,6 +649,48 @@ async def top_gainers_refresh_loop():
         except Exception as exc:
             print(f"[Top Gainers] {config.TOP_GAINERS_REFRESH_SEC // 60} dakikalık yenileme hatası: {exc}")
         await asyncio.sleep(config.TOP_GAINERS_REFRESH_SEC)
+
+def m5_tape_is_dead(rows: list, now_ms: int | None = None) -> tuple[bool, str]:
+    """Son kapanmış M5 mumları düz ve hacimsizse True.
+
+    Görseldeki gibi art arda fitilsiz/dar mum ve hacim yok. Veri yetmezse
+    pasif denmez; hareketli tahta listede kalır.
+    """
+    now = int(now_ms if now_ms is not None else time.time() * 1000)
+    streak_n = int(getattr(config, "M5_FLAT_STREAK", 6))
+    flat_max = float(getattr(config, "M5_FLAT_RANGE_PCT", 0.20))
+    vol_ratio = float(getattr(config, "M5_DEAD_VOLUME_RATIO", 0.20))
+    closed: list[tuple[float, float, float]] = []
+    for row in rows or []:
+        try:
+            opened = int(row[0])
+            high = float(row[2])
+            low = float(row[3])
+            volume = float(row[5])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if low <= 0 or opened + 300_000 > now:
+            continue
+        closed.append((high, low, volume))
+    if len(closed) < streak_n:
+        return False, "m5_veri_yok"
+    streak = closed[-streak_n:]
+    prior = [volume for _, _, volume in closed[:-streak_n] if volume > 0]
+    median = sorted(prior)[len(prior) // 2] if prior else 0.0
+    dead = 0
+    for high, low, volume in streak:
+        range_pct = (high - low) / low * 100.0
+        flat = range_pct <= flat_max
+        if median <= 0:
+            volume_dead = volume <= 0
+        else:
+            volume_dead = volume <= median * vol_ratio
+        if flat and volume_dead:
+            dead += 1
+    if dead >= streak_n:
+        return True, f"m5_duz_hacimsiz:{dead}/{streak_n}"
+    return False, "m5_hareketli"
+
 
 def _is_real_candle(high: float, low: float) -> bool:
     """Gerçek bir mum mu? High ve Low farklı olmalı."""
@@ -771,7 +855,7 @@ def _comprehensive_passive_analysis(m1_bars: dict, m5_bars: dict, now_ms: int) -
         ÖNEMLİ: Gerçek mum = High > Low. Çizgi veri (H=L) = mum yok!
         """
         if not tf.get("ready", False):
-            return True, f"veri_yok ({tf.get('reason', 'bilinmiyor')})"
+            return False, f"veri_yok ({tf.get('reason', 'bilinmiyor')})"
         
         # YENİ: Gerçek mum sayısı yetersizse KESİNLİKLE pasif say
         real_count = tf.get("real_candle_count", 0)
@@ -994,6 +1078,11 @@ async def refresh_symbol_activity():
     """Refresh the full Binance TR TRY universe and mark inactive symbols."""
     known_try = set(await trading_symbols("TRY"))
     open_symbols = set(analyzer.positions) | set((await database.load_positions()).keys())
+    try:
+        paper_rows = await database.list_auto_paper_trades(status="open", apply_reports_baseline=False)
+        open_symbols |= {str(row.get("symbol") or "").upper() for row in paper_rows if row.get("symbol")}
+    except Exception as exc:
+        print(f"[Activity] açık paper sembolleri okunamadı: {exc}", flush=True)
     universe = list(dict.fromkeys(sorted(known_try | open_symbols)))
     if not universe:
         raise RuntimeError("Binance TR TRY sembol evreni boş döndü")

@@ -405,7 +405,7 @@ class RegressionContracts(unittest.TestCase):
         source = (ROOT.parent / "docker-compose.yaml").read_text(encoding="utf-8")
         self.assertIn("LLM_ENCRYPTION_KEY: ${LLM_ENCRYPTION_KEY:?", source)
         self.assertIn("TOP_GAINERS_AUTO_ACTIVATE: ${TOP_GAINERS_AUTO_ACTIVATE:-true}", source)
-        self.assertIn("TOP_GAINERS_LIMIT: ${TOP_GAINERS_LIMIT:-10}", source)
+        self.assertIn("TOP_GAINERS_LIMIT: ${TOP_GAINERS_LIMIT:-40}", source)
         self.assertIn("TOP_GAINERS_REFRESH_SEC: ${TOP_GAINERS_REFRESH_SEC:-600}", source)
         self.assertIn("NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${NEXT_PUBLIC_VAPID_PUBLIC_KEY:-}", source)
 
