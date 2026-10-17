@@ -1,7 +1,8 @@
 """7 günlük kıyas: mevcut TP/SL çıkışı, avize çıkışı, fonlama vetosu, saatlik hacim.
 
 Adaylar `velocity_candidates` (passes=true, son 7 gün). Fiyat Binance TR
-mumlarından, fonlama Binance USD-M geçmişinden okunur. Maliyet %0.35.
+mumlarından, fonlama Binance USD-M geçmişinden okunur.
+Maliyet: alış taker %0,1125, hedef satış maker %0,0675, stop satış taker %0,1125.
 
     python backend/scripts/addon_7d_replay.py --days 7
 """
@@ -23,7 +24,10 @@ from app.radar_addons import (  # noqa: E402
     base_asset, crowded_long_reason, simulate_path,
 )
 
-_COST = 0.35
+_COST_TP = 0.1125 + 0.0675
+_COST_STOP = 0.1125 + 0.1125
+_COST = _COST_STOP
+_NET_FLOOR = _COST_TP + 0.50
 _SL = 3.0
 _RVOL_MIN = 0.70
 _RVOL_SAMPLES = 4
@@ -169,6 +173,18 @@ def _load_candidates(days: float, db_url: str) -> list[dict]:
     return out
 
 
+def _ret_1h(rows: list, ts_ms: int) -> float | None:
+    """Son kapanmış 1s getirisi. Veri yoksa None (veto uygulanmaz)."""
+    closed = [r for r in rows if int(r[6]) <= ts_ms]
+    if len(closed) < 2:
+        return None
+    prev = float(closed[-2][4])
+    last = float(closed[-1][4])
+    if prev <= 0:
+        return None
+    return (last / prev - 1.0) * 100.0
+
+
 def main() -> int:
     days = 7.0
     db_url = os.environ.get(
@@ -227,12 +243,17 @@ def main() -> int:
             print(f"  ... {i + 1}/{len(by_sym)}")
         time.sleep(0.02)
 
+    btc_1h = _klines("BTCTRY", "1h", start_ms, end_ms)
     arms = {
         "mevcut_tp": [],
         "avize": [],
         "fonlama_veto_tp": [],
         "rvol_veto_tp": [],
         "ucu_birden_avize": [],
+        "btc_rs_veto": [],
+        "genislik_veto": [],
+        "maliyet_tabani": [],
+        "uc_kapi_tp": [],
     }
     skipped = {"mum": 0, "fonlama_yok": 0, "rvol_yok": 0}
     for c in cands:
@@ -241,9 +262,11 @@ def main() -> int:
             skipped["mum"] += 1
             continue
         base = simulate_path(bars, c["price"], target_pct=c["target"], horizon_min=max(30.0, c["h"]),
-                             cost_pct=_COST, sl_pct=_SL, exit_mode="target")
+                             cost_pct=_COST, cost_tp_pct=_COST_TP, cost_stop_pct=_COST_STOP,
+                             sl_pct=_SL, exit_mode="target")
         chand = simulate_path(bars, c["price"], target_pct=c["target"], horizon_min=max(30.0, c["h"]),
-                              cost_pct=_COST, sl_pct=_SL, exit_mode="chandelier")
+                              cost_pct=_COST, cost_tp_pct=_COST_TP, cost_stop_pct=_COST_STOP,
+                              sl_pct=_SL, exit_mode="chandelier")
         if base:
             arms["mevcut_tp"].append(base["net_pct"])
         if chand:
@@ -262,11 +285,34 @@ def main() -> int:
             arms["rvol_veto_tp"].append(base["net_pct"])
         if chand and not blocked_funding and not blocked_rvol:
             arms["ucu_birden_avize"].append(chand["net_pct"])
+        sym_ret = _ret_1h(k1h.get(c["sym"]) or [], int(c["ts"] * 1000))
+        btc_ret = _ret_1h(btc_1h, int(c["ts"] * 1000))
+        blocked_rs = sym_ret is not None and btc_ret is not None and sym_ret < btc_ret
+        up = 0
+        known = 0
+        for sym, rows in k1h.items():
+            ret = _ret_1h(rows, int(c["ts"] * 1000))
+            if ret is None:
+                continue
+            known += 1
+            if ret > 0:
+                up += 1
+        breadth = (up / known) if known else None
+        blocked_breadth = breadth is not None and breadth < 0.45
+        blocked_cost = float(c["target"]) < _NET_FLOOR
+        if base and not blocked_rs:
+            arms["btc_rs_veto"].append(base["net_pct"])
+        if base and not blocked_breadth:
+            arms["genislik_veto"].append(base["net_pct"])
+        if base and not blocked_cost:
+            arms["maliyet_tabani"].append(base["net_pct"])
+        if base and not blocked_rs and not blocked_breadth and not blocked_cost and not blocked_rvol:
+            arms["uc_kapi_tp"].append(base["net_pct"])
 
     report = {name: _metrics(nets) for name, nets in arms.items()}
     report["atlandi"] = skipped
     report["aday"] = len(cands)
-    print("\n  == SONUCLAR (net %, maliyet 0.35) ==")
+    print("\n  == SONUCLAR (net %, taker 0.1125 / maker 0.0675) ==")
     for name, row in report.items():
         if name in ("atlandi", "aday"):
             print(f"  {name}: {row}")

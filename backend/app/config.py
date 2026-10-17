@@ -553,8 +553,7 @@ class Config:
     # işlemle açılır. Mevcut otonom paper'dan BAĞIMSIZ (kendi cüzdanı, kendi
     # defteri). Kurallar:
     #   * Pozisyon büyüklüğü: her sembol için SERBEST TL bakiyesinin %10'u.
-    #   * Komisyon: Binance TR ile aynı (maker/taker 0.0015 = %0,15/bacak;
-    #     COMMISSION_PCT ile hizalı) + kayma (ESTIMATED_SLIPPAGE_PCT).
+    #   * Komisyon: Binance TR, BNB indirimi açık. Alış taker, hedef satış maker.
     #   * TP: adayın YÜKSELME POTANSİYELİNE göre belirlenir (potential_pct).
     #   * Kâra geçince trailing mantığıyla MAKSİMUM kâr alınmaya çalışılır.
     # ------------------------------------------------------------------
@@ -988,8 +987,13 @@ class Config:
     SYSTEM_ATR_TRAILING_MULTIPLIER = max(0.5, float(os.getenv("SYSTEM_ATR_TRAILING_MULTIPLIER", "2.5")))
     SYSTEM_ATR_TRAILING_ACTIVATION_ATR = max(0.25, float(os.getenv("SYSTEM_ATR_TRAILING_ACTIVATION_ATR", "1.0")))
 
-    # Binance TR spot komisyonu (Bronz/Standart taker %0.15) - işlem başına
-    COMMISSION_PCT = float(os.getenv("COMMISSION_PCT", "0.0015"))
+    # Binance TR spot, BNB ile komisyon (ekrandaki %25 indirim fiyata dahil).
+    # Piyasa yapıcı %0,0675, piyasa alıcı %0,1125. Alış piyasa emridir (taker).
+    # Hedef satış limitte kalırsa maker, stop ve piyasa satış taker sayılır.
+    COMMISSION_MAKER_PCT = float(os.getenv("COMMISSION_MAKER_PCT", "0.000675"))
+    COMMISSION_TAKER_PCT = float(os.getenv("COMMISSION_TAKER_PCT", "0.001125"))
+    # Eski tek-oran çağrıları taker kullanır (piyasa dolumu).
+    COMMISSION_PCT = float(os.getenv("COMMISSION_PCT", str(COMMISSION_TAKER_PCT)))
     ESTIMATED_SLIPPAGE_PCT = 0.00025
     MIN_EXPECTED_NET_PNL_TRY = 0.5
     # LLM paper-entry gate: an entry is blocked when the live top-of-book spread
@@ -1206,9 +1210,10 @@ class Config:
 
         D-06 (2026-09-14) tek kaynak: `min_net_exit_pct` VE velocity gerçekleşen
         çıkış metriği aynı sayıyı kullanır; kopya formül üretilmez.
-        -> (0.0015 + 0.00025) * 2 = 0.0035 (%%0.35)
+        Alış ve satış ikisi de taker ise (0.001125 + 0.00025) * 2.
+        Hedef satış maker ise bacaklar COMMISSION_TAKER_PCT + COMMISSION_MAKER_PCT.
         """
-        return cls.COMMISSION_PCT * 2 + cls.ESTIMATED_SLIPPAGE_PCT * 2
+        return cls.COMMISSION_TAKER_PCT * 2 + cls.ESTIMATED_SLIPPAGE_PCT * 2
 
     @classmethod
     def min_net_exit_pct(cls, order_value: float | None = None) -> float:

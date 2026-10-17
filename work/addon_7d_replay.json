@@ -1,38 +1,62 @@
 {
   "mevcut_tp": {
-    "n": 2974,
-    "ev": -0.413,
-    "median": -0.463,
-    "win": 38.8
+    "n": 2962,
+    "ev": -0.276,
+    "median": -0.333,
+    "win": 41.0
   },
   "avize": {
-    "n": 2974,
-    "ev": -0.423,
-    "median": -0.576,
-    "win": 35.7
+    "n": 2962,
+    "ev": -0.295,
+    "median": -0.444,
+    "win": 38.2
   },
   "fonlama_veto_tp": {
-    "n": 2974,
-    "ev": -0.413,
-    "median": -0.463,
-    "win": 38.8
+    "n": 2962,
+    "ev": -0.276,
+    "median": -0.333,
+    "win": 41.0
   },
   "rvol_veto_tp": {
-    "n": 2268,
-    "ev": -0.402,
-    "median": -0.455,
-    "win": 40.0
+    "n": 2258,
+    "ev": -0.268,
+    "median": -0.33,
+    "win": 41.9
   },
   "ucu_birden_avize": {
-    "n": 2268,
-    "ev": -0.41,
-    "median": -0.592,
-    "win": 36.8
+    "n": 2258,
+    "ev": -0.283,
+    "median": -0.464,
+    "win": 38.9
+  },
+  "btc_rs_veto": {
+    "n": 1596,
+    "ev": -0.312,
+    "median": -0.478,
+    "win": 40.1
+  },
+  "genislik_veto": {
+    "n": 1129,
+    "ev": -0.398,
+    "median": -0.528,
+    "win": 37.4
+  },
+  "maliyet_tabani": {
+    "n": 2962,
+    "ev": -0.276,
+    "median": -0.333,
+    "win": 41.0
+  },
+  "uc_kapi_tp": {
+    "n": 559,
+    "ev": -0.364,
+    "median": -0.536,
+    "win": 39.7
   },
   "atlandi": {
-    "mum": 0,
-    "fonlama_yok": 236,
+    "mum": 1,
+    "fonlama_yok": 237,
     "rvol_yok": 1
   },
-  "aday": 2974
+  "aday": 2963
 }

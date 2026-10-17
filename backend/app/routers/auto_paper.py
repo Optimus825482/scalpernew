@@ -714,7 +714,7 @@ async def _open_new_trade(symbol: str, notification: dict, current_price: float,
                         symbol, target_pct, max_target)
             target_pct = max_target
 
-        commission_pct = config.COMMISSION_PCT
+        commission_pct = config.COMMISSION_TAKER_PCT
         max_cost = order_value / (1 + commission_pct)
         # D-08 (2026-09-12): fiilî ALIŞ dolumuna kayma (slippage) uygula. Maliyet
         # tabanı ve adet bu dolumdan türetilir; quantity*entry_price = max_cost
@@ -733,7 +733,7 @@ async def _open_new_trade(symbol: str, notification: dict, current_price: float,
         # TP brüt = 2.0 + 2×0.15 + 0.025 ≈ +2.325%. Kapanış muhasebesi
         # (`_close_trade`) ZATEN komisyon+ kaymayı düşüyor; çapası da
         # mark-up'lı olmalı ki bildirimdeki hedef gerçekten realize edilsin.
-        cost_markup = 2 * commission_pct + float(getattr(config, "ESTIMATED_SLIPPAGE_PCT", 0.0) or 0.0)
+        cost_markup = (config.COMMISSION_TAKER_PCT + config.COMMISSION_MAKER_PCT) + float(getattr(config, "ESTIMATED_SLIPPAGE_PCT", 0.0) or 0.0)
         take_profit_price = fill_entry * (1 + target_pct / 100 + cost_markup)
 
         # Volatiliteye duyarlı Stop Loss (ATR koruması):
@@ -895,7 +895,7 @@ async def _update_existing_trade(open_trade: dict, notification: dict, current_p
         # ERKAN İSTEĞİ (2026-09-18): TP-güncelleme de NET hedefe göre — giriş
         # kapasıyla AYNI mark-up (`_open_new_trade` ile tutarlı); aksi halde
         # güncellenen pozisyonun hedefi mark-up'sız kalırdı.
-        cost_markup = 2 * config.COMMISSION_PCT + float(getattr(config, "ESTIMATED_SLIPPAGE_PCT", 0.0) or 0.0)
+        cost_markup = (config.COMMISSION_TAKER_PCT + config.COMMISSION_MAKER_PCT) + float(getattr(config, "ESTIMATED_SLIPPAGE_PCT", 0.0) or 0.0)
         new_tp = entry_price * (1 + target_pct / 100 + cost_markup)
         old_tp = float(open_trade.get("take_profit") or 0)
 
@@ -1297,15 +1297,16 @@ async def _close_trade(trade_id: int, symbol: str, exit_price: float, now: float
 
         entry_price = float(trade["entry_price"])
         quantity = float(trade["quantity"])
-        commission_pct = config.COMMISSION_PCT
+        entry_fee = config.COMMISSION_TAKER_PCT
+        exit_fee = config.COMMISSION_MAKER_PCT if reason == "take_profit" else config.COMMISSION_TAKER_PCT
         # D-08 (2026-09-12): fiilî SATIŞ dolumuna kayma (slippage) uygula.
         # TP/SL tetik dolumu `_manage_single_trade` içinde tetik fiyatına
         # çekilir (min/max); kayma bunun ÜZERİNE uygulanır. Tek kaynak:
         # config.ESTIMATED_SLIPPAGE_PCT.
         exit_slip = float(getattr(config, "ESTIMATED_SLIPPAGE_PCT", 0.0) or 0.0)
         fill_price = exit_price * (1.0 - exit_slip)
-        entry_commission = entry_price * quantity * commission_pct
-        exit_commission = fill_price * quantity * commission_pct
+        entry_commission = entry_price * quantity * entry_fee
+        exit_commission = fill_price * quantity * exit_fee
         total_commission = entry_commission + exit_commission
         gross_pnl = (fill_price - entry_price) * quantity
         pnl = gross_pnl - total_commission

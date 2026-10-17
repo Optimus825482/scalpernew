@@ -62,7 +62,7 @@ def simulate_exit(bars, entry: float, *, entry_time: float = 0.0,
                   tp_pct: float = 3.0, sl_pct: float = 3.0,
                   trail_trigger_pct: float = 2.0, trail_gap_pct: float = 1.0,
                   cancel_tp_on_trail: bool = True, no_profit_min: float = 30.0,
-                  max_hold_min: float = 120.0, commission_pct: float = 0.0015,
+                  max_hold_min: float = 120.0, commission_pct: float = 0.001125,
                   slippage_pct: float = 0.0, bar_seconds: float = _5M_SEC) -> dict:
     """Adayı otonom paper kurallarıyla mum-mum oynat; gerçekleşebilir net% ver.
 

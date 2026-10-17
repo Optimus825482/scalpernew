@@ -102,9 +102,11 @@ def _atr_price(highs, lows, closes, end: int, period: int = 14) -> float | None:
 
 
 def simulate_path(bars, entry: float, *, target_pct: float, horizon_min: float,
-                  cost_pct: float = 0.35, sl_pct: float = 3.0,
+                  cost_pct: float = 0.225, sl_pct: float = 3.0,
                   exit_mode: str = "target",
-                  chandelier_length: int = 22, chandelier_mult: float = 3.0) -> dict | None:
+                  chandelier_length: int = 22, chandelier_mult: float = 3.0,
+                  cost_tp_pct: float | None = None,
+                  cost_stop_pct: float | None = None) -> dict | None:
     """İleri mumlarda çıkış. `bars`: (epoch_sn, high, low, close) girişten sonra.
 
     exit_mode:
@@ -155,8 +157,14 @@ def simulate_path(bars, entry: float, *, target_pct: float, horizon_min: float,
     if exit_px is None:
         return None
     gross = (exit_px / entry - 1) * 100
+    if reason == "take_profit" and cost_tp_pct is not None:
+        paid = float(cost_tp_pct)
+    elif reason != "take_profit" and cost_stop_pct is not None:
+        paid = float(cost_stop_pct)
+    else:
+        paid = float(cost_pct)
     return {
-        "net_pct": round(gross - float(cost_pct), 4),
+        "net_pct": round(gross - paid, 4),
         "reason": reason,
         "mfe": round((peak / entry - 1) * 100, 3),
     }
