@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import AppLink from "./AppLink";
 import { apiRequest } from "../lib/api";
 import { formatPrice } from "../lib/format";
 import { usePriceWatch, type PriceWatchEntry } from "../lib/priceWatch";
@@ -69,12 +69,12 @@ function WatchChip({ entry, current, onRemove }: { entry: PriceWatchEntry; curre
   return (
     <div className="flex min-w-[150px] shrink-0 flex-col rounded-xl border border-line bg-white p-2.5">
       <div className="flex items-center justify-between gap-2">
-        <Link
+        <AppLink
           href={`/grafik?symbol=${encodeURIComponent(entry.symbol)}&interval=5m`}
           className="font-mono text-xs font-bold text-ink-900 hover:text-accent"
         >
           {entry.base}<span className="text-[10px] font-normal text-ink-400">/TRY</span>
-        </Link>
+        </AppLink>
         <button
           type="button"
           onClick={onRemove}

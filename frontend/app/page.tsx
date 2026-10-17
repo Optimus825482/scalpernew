@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import AppLink from "./components/AppLink";
 import { apiRequest } from "./lib/api";
 import { usePoll } from "./lib/hooks";
 import { toOpportunityView, type OpportunityView } from "./lib/opportunity";
@@ -404,7 +404,7 @@ export default function Home() {
             eyebrow="Portföy & Pozisyonlar"
             title="Aktif Binance TR Varlıkları"
             description="Cüzdandaki açık coin bakiyeleri, anlık kâr/zarar ve maliyet durumu."
-            actions={<Link href="/gecmis-islemler" className="rounded-lg border border-line px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent-soft">İşlem Geçmişi →</Link>}
+            actions={<AppLink href="/gecmis-islemler" className="rounded-lg border border-line px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent-soft">İşlem Geçmişi →</AppLink>}
           />
           <div className="mt-4">
             <ActiveTradesTable

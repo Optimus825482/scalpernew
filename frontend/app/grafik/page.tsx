@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import AppLink from "../components/AppLink";
 import { useSearchParams } from "next/navigation";
 import MarketChart from "../components/MarketChart";
 import { Card, SectionHeader, Skeleton } from "../components/ui";
@@ -95,7 +95,7 @@ function GrafikContent() {
         title="Canlı Binance TR Grafikleri"
         description="Yakınlaştırılabilir mum grafikleri, kullanıcıya özel gösterge ayarları ve WebSocket güncellemesi."
         actions={<div className="flex flex-wrap items-center gap-2">
-          <Link href="/" className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-accent/90">← Anasayfa & İşlem Paneli</Link>
+          <AppLink href="/" className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-accent/90">← Anasayfa & İşlem Paneli</AppLink>
           <div className="flex rounded-lg border border-line bg-white p-1" aria-label="Grafik panel sayısı">
             {([1, 2, 4] as const).map((count) => <button key={count} type="button" aria-pressed={panelCount === count} onClick={() => setPanelCount(count)} className={`min-w-8 rounded-md px-2.5 py-1 text-xs font-semibold ${panelCount === count ? "bg-accent text-white" : "text-ink-500 hover:bg-canvas"}`}>{count} Panel</button>)}
           </div>
@@ -123,7 +123,7 @@ function GrafikContent() {
           />
         </Card>)}
       </div>
-      <p className="text-[11px] text-ink-400">Hazır göstergeler: Hacim, SMA, EMA, Bollinger Bands, RSI, MACD, VWAP, ATR ve ADX. Grafik kütüphanesi: TradingView Lightweight Charts™.</p>
+      <p className="text-[11px] text-ink-400">Varsayılan: fiyatın üzerinde EMA 7, 20 ve 99; alt panele Stochastic RSI 14 (bant 20 / 80). Diğer göstergeler ayardan açılır. Grafik kütüphanesi: TradingView Lightweight Charts™.</p>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useEffect, useState } from "react";
-import Link from "next/link";
+import AppLink from "./AppLink";
 import { formatPct, formatPrice } from "../lib/format";
 import type { OpportunityView } from "../lib/opportunity";
 import { useWatchlist } from "../lib/watchlist";
@@ -278,13 +278,13 @@ function OpportunityCard({
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Link
+                <AppLink
                   href={chartUrl}
                   onClick={() => setChartOpen(false)}
                   className="rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-white shadow-sm"
                 >
                   Tam Ekranda Aç
-                </Link>
+                </AppLink>
                 <button
                   type="button"
                   aria-label="Grafik penceresini kapat"

@@ -8,16 +8,27 @@ import { useAuth } from "../lib/auth";
 import { formatPrice } from "../lib/format";
 
 export type Candle = { time: number; open: number; high: number; low: number; close: number; volume: number };
-type Indicator = "volume" | "sma" | "ema" | "bollinger" | "rsi" | "macd" | "vwap" | "atr" | "adx";
-type IndicatorConfig = { enabled: Indicator[]; periods: { sma: number; ema: number; bollinger: number; rsi: number; atr: number; adx: number } };
+type Indicator = "volume" | "sma" | "ema" | "ema3" | "bollinger" | "rsi" | "stochrsi" | "macd" | "vwap" | "atr" | "adx";
+type IndicatorConfig = { version: number; enabled: Indicator[]; periods: { sma: number; ema: number; bollinger: number; rsi: number; atr: number; adx: number } };
 const INTERVALS = ["1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"] as const;
+const CONFIG_VERSION = 2;
+const STOCH_RSI_PERIOD = 14;
+const STOCH_RSI_LOW = 20;
+const STOCH_RSI_HIGH = 80;
+const EMA_TRIPLE = [7, 20, 99] as const;
+const SUB_PANE_IDS: Indicator[] = ["rsi", "stochrsi", "macd", "atr", "adx"];
 const INDICATORS: Array<{ id: Indicator; label: string }> = [
-  { id: "volume", label: "Hacim" }, { id: "sma", label: "SMA" }, { id: "ema", label: "EMA" },
-  { id: "bollinger", label: "Bollinger" }, { id: "rsi", label: "RSI" }, { id: "macd", label: "MACD" },
+  { id: "volume", label: "Hacim" }, { id: "ema3", label: "EMA 7/20/99" }, { id: "sma", label: "SMA" }, { id: "ema", label: "EMA" },
+  { id: "bollinger", label: "Bollinger" }, { id: "stochrsi", label: "Stoch RSI" }, { id: "rsi", label: "RSI" }, { id: "macd", label: "MACD" },
   { id: "vwap", label: "VWAP" }, { id: "atr", label: "ATR" }, { id: "adx", label: "ADX" },
 ];
-const DEFAULT_CONFIG: IndicatorConfig = { enabled: ["volume", "sma", "rsi", "macd"], periods: { sma: 20, ema: 12, bollinger: 20, rsi: 14, atr: 14, adx: 14 } };
+const DEFAULT_CONFIG: IndicatorConfig = {
+  version: CONFIG_VERSION,
+  enabled: ["volume", "ema3", "stochrsi"],
+  periods: { sma: 20, ema: 12, bollinger: 20, rsi: 14, atr: 14, adx: 14 },
+};
 const normalizeSymbol = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+const formatReading = (value: number | null) => value == null ? "—" : value.toLocaleString("tr-TR", { maximumSignificantDigits: 6 });
 
 function readCandle(raw: unknown): Candle | null {
   if (Array.isArray(raw)) {
@@ -55,6 +66,63 @@ function ema(values: number[], period: number): Array<number | null> {
   return output;
 }
 
+function wilderRsi(closes: number[], period: number): Array<number | null> {
+  const rsi: Array<number | null> = Array(closes.length).fill(null);
+  const gains: number[] = [];
+  const losses: number[] = [];
+  for (let index = 1; index < closes.length; index++) {
+    const delta = closes[index] - closes[index - 1];
+    gains.push(Math.max(0, delta));
+    losses.push(Math.max(0, -delta));
+  }
+  if (gains.length < period) return rsi;
+  let gain = gains.slice(0, period).reduce((sum, value) => sum + value, 0) / period;
+  let loss = losses.slice(0, period).reduce((sum, value) => sum + value, 0) / period;
+  const value = (averageGain: number, averageLoss: number) => averageLoss === 0 ? 100 : 100 - 100 / (1 + averageGain / averageLoss);
+  rsi[period] = value(gain, loss);
+  for (let index = period + 1; index < closes.length; index++) {
+    gain = (gain * (period - 1) + gains[index - 1]) / period;
+    loss = (loss * (period - 1) + losses[index - 1]) / period;
+    rsi[index] = value(gain, loss);
+  }
+  return rsi;
+}
+
+function smaNullable(values: Array<number | null>, period: number): Array<number | null> {
+  const output: Array<number | null> = Array(values.length).fill(null);
+  for (let index = period - 1; index < values.length; index++) {
+    let total = 0;
+    let complete = true;
+    for (let cursor = index - period + 1; cursor <= index; cursor++) {
+      const point = values[cursor];
+      if (point == null) { complete = false; break; }
+      total += point;
+    }
+    if (complete) output[index] = total / period;
+  }
+  return output;
+}
+
+function stochasticRsi(closes: number[], rsiPeriod = STOCH_RSI_PERIOD, stochPeriod = STOCH_RSI_PERIOD, kPeriod = 3, dPeriod = 3) {
+  const rsi = wilderRsi(closes, rsiPeriod);
+  const raw: Array<number | null> = Array(closes.length).fill(null);
+  for (let index = stochPeriod - 1; index < rsi.length; index++) {
+    let low = Infinity;
+    let high = -Infinity;
+    let complete = true;
+    for (let cursor = index - stochPeriod + 1; cursor <= index; cursor++) {
+      const point = rsi[cursor];
+      if (point == null) { complete = false; break; }
+      if (point < low) low = point;
+      if (point > high) high = point;
+    }
+    if (!complete || rsi[index] == null) continue;
+    raw[index] = high === low ? 50 : ((rsi[index] as number) - low) / (high - low) * 100;
+  }
+  const k = smaNullable(raw, kPeriod);
+  return { k, d: smaNullable(k, dPeriod) };
+}
+
 function calculate(candles: Candle[], periods: IndicatorConfig["periods"]) {
   const closes = candles.map((candle) => candle.close);
   const middle = sma(closes, periods.bollinger);
@@ -65,23 +133,8 @@ function calculate(candles: Candle[], periods: IndicatorConfig["periods"]) {
     return value + 2 * sd;
   });
   const lower = upper.map((value, index) => value == null || middle[index] == null ? null : 2 * (middle[index] as number) - value);
-  const rsi: Array<number | null> = Array(candles.length).fill(null);
-  const gains: number[] = [], losses: number[] = [];
-  for (let index = 1; index < closes.length; index++) {
-    const delta = closes[index] - closes[index - 1];
-    gains.push(Math.max(0, delta)); losses.push(Math.max(0, -delta));
-  }
-  if (gains.length >= periods.rsi) {
-    let gain = gains.slice(0, periods.rsi).reduce((sum, value) => sum + value, 0) / periods.rsi;
-    let loss = losses.slice(0, periods.rsi).reduce((sum, value) => sum + value, 0) / periods.rsi;
-    const value = (g: number, l: number) => l === 0 ? 100 : 100 - 100 / (1 + g / l);
-    rsi[periods.rsi] = value(gain, loss);
-    for (let index = periods.rsi + 1; index < candles.length; index++) {
-      gain = (gain * (periods.rsi - 1) + gains[index - 1]) / periods.rsi;
-      loss = (loss * (periods.rsi - 1) + losses[index - 1]) / periods.rsi;
-      rsi[index] = value(gain, loss);
-    }
-  }
+  const rsi = wilderRsi(closes, periods.rsi);
+  const stoch = stochasticRsi(closes);
   const tr: number[] = [], up: number[] = [], down: number[] = [];
   for (let index = 0; index < candles.length; index++) {
     const current = candles[index], previous = candles[index - 1];
@@ -119,7 +172,14 @@ function calculate(candles: Candle[], periods: IndicatorConfig["periods"]) {
   if (macdStart >= 0) for (let index = 0; index < signal.length; index++) if (signal[index] != null) histogram[macdStart + index] = macd[macdStart + index] - (signal[index] as number);
   let weighted = 0, volume = 0;
   const vwap = candles.map((candle) => { weighted += ((candle.high + candle.low + candle.close) / 3) * candle.volume; volume += candle.volume; return volume ? weighted / volume : null; });
-  return { sma: sma(closes, periods.sma), ema: ema(closes, periods.ema), upper, lower, rsi, adx, atr, histogram, vwap };
+  return {
+    sma: sma(closes, periods.sma),
+    ema: ema(closes, periods.ema),
+    ema7: ema(closes, EMA_TRIPLE[0]),
+    ema20: ema(closes, EMA_TRIPLE[1]),
+    ema99: ema(closes, EMA_TRIPLE[2]),
+    upper, lower, rsi, stochK: stoch.k, stochD: stoch.d, adx, atr, histogram, vwap,
+  };
 }
 
 function storedConfig(username: string | null, panelId: string): IndicatorConfig {
@@ -128,10 +188,11 @@ function storedConfig(username: string | null, panelId: string): IndicatorConfig
     const raw = localStorage.getItem(`odak_chart_indicators:${String(username || "guest").toLowerCase()}:${panelId}`);
     if (!raw) return DEFAULT_CONFIG;
     const parsed = JSON.parse(raw) as Partial<IndicatorConfig>;
+    if (Number(parsed.version) !== CONFIG_VERSION) return DEFAULT_CONFIG;
     const enabled = Array.isArray(parsed.enabled) ? parsed.enabled.filter((item): item is Indicator => INDICATORS.some((option) => option.id === item)) : DEFAULT_CONFIG.enabled;
     const periods = { ...DEFAULT_CONFIG.periods, ...(parsed.periods || {}) };
     for (const key of Object.keys(periods) as Array<keyof typeof periods>) periods[key] = Math.max(2, Math.min(200, Number(periods[key]) || DEFAULT_CONFIG.periods[key]));
-    return { enabled, periods };
+    return { version: CONFIG_VERSION, enabled, periods };
   } catch { return DEFAULT_CONFIG; }
 }
 
@@ -264,16 +325,26 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
         volume: main.addSeries(charts.HistogramSeries, { priceScaleId: "volume", priceFormat: { type: "volume" }, lastValueVisible: false, priceLineVisible: false }),
         sma: main.addSeries(charts.LineSeries, { color: "#3478e5", lineWidth: 2, priceLineVisible: false, lastValueVisible: false }),
         ema: main.addSeries(charts.LineSeries, { color: "#e3a126", lineWidth: 2, priceLineVisible: false, lastValueVisible: false }),
+        ema7: main.addSeries(charts.LineSeries, { color: "#f59e0b", lineWidth: 2, priceLineVisible: false, lastValueVisible: false, title: "EMA 7" }),
+        ema20: main.addSeries(charts.LineSeries, { color: "#3478e5", lineWidth: 2, priceLineVisible: false, lastValueVisible: false, title: "EMA 20" }),
+        ema99: main.addSeries(charts.LineSeries, { color: "#0f172a", lineWidth: 2, priceLineVisible: false, lastValueVisible: false, title: "EMA 99" }),
         upper: main.addSeries(charts.LineSeries, { color: "#9370db", lineWidth: 1, priceLineVisible: false, lastValueVisible: false }),
         lower: main.addSeries(charts.LineSeries, { color: "#9370db", lineWidth: 1, priceLineVisible: false, lastValueVisible: false }),
         vwap: main.addSeries(charts.LineSeries, { color: "#0e9f9a", lineWidth: 2, priceLineVisible: false, lastValueVisible: false }),
         rsi: sub.addSeries(charts.LineSeries, { color: "#7c3aed", lineWidth: 2, priceScaleId: "rsi" }),
+        stochK: sub.addSeries(charts.LineSeries, {
+          color: "#7c3aed", lineWidth: 2, priceScaleId: "stochrsi", priceLineVisible: false, title: "StochRSI %K",
+          autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 100 } }),
+        }),
+        stochD: sub.addSeries(charts.LineSeries, { color: "#f59e0b", lineWidth: 1, priceScaleId: "stochrsi", priceLineVisible: false, lastValueVisible: false, title: "%D" }),
+        stochHigh: sub.addSeries(charts.LineSeries, { color: "#e24755", lineWidth: 1, lineStyle: 2, priceScaleId: "stochrsi", priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }),
+        stochLow: sub.addSeries(charts.LineSeries, { color: "#08a66a", lineWidth: 1, lineStyle: 2, priceScaleId: "stochrsi", priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }),
         adx: sub.addSeries(charts.LineSeries, { color: "#f59e0b", lineWidth: 2, priceScaleId: "adx" }),
         atr: sub.addSeries(charts.LineSeries, { color: "#0e9f9a", lineWidth: 2, priceScaleId: "atr" }),
         macd: sub.addSeries(charts.HistogramSeries, { priceScaleId: "macd", priceLineVisible: false, lastValueVisible: false }),
       };
       main.priceScale("volume").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
-      ["rsi", "adx", "atr", "macd"].forEach((scale) => sub?.priceScale(scale).applyOptions({ scaleMargins: { top: 0.1, bottom: 0.1 } }));
+      ["rsi", "stochrsi", "adx", "atr", "macd"].forEach((scale) => sub?.priceScale(scale).applyOptions({ scaleMargins: { top: 0.08, bottom: 0.08 } }));
       main.timeScale().subscribeVisibleLogicalRangeChange((range) => { if (range) sub?.timeScale().setVisibleLogicalRange(range); });
       sub.timeScale().subscribeVisibleLogicalRangeChange((range) => { if (range) main?.timeScale().setVisibleLogicalRange(range); });
 
@@ -323,7 +394,7 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
 
     if (isFullscreen) {
       const updateFullscreenDimensions = () => {
-        const subVisible = config.enabled.some((id) => ["rsi", "macd", "atr", "adx"].includes(id));
+        const subVisible = config.enabled.some((id) => SUB_PANE_IDS.includes(id));
         const subHeight = subVisible ? 120 : 0;
         const availableHeight = Math.max(320, window.innerHeight - 240 - subHeight);
         setFullscreenHeight(availableHeight);
@@ -375,10 +446,18 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
       seriesRef.current.volume?.setData(enabled.has("volume") ? candles.map((candle) => ({ time: toTime(candle.time), value: candle.volume, color: candle.close >= candle.open ? "rgba(8,166,106,.45)" : "rgba(226,71,85,.45)" })) : []);
       seriesRef.current.sma?.setData(enabled.has("sma") ? lineData(values.sma) : []);
       seriesRef.current.ema?.setData(enabled.has("ema") ? lineData(values.ema) : []);
+      seriesRef.current.ema7?.setData(enabled.has("ema3") ? lineData(values.ema7) : []);
+      seriesRef.current.ema20?.setData(enabled.has("ema3") ? lineData(values.ema20) : []);
+      seriesRef.current.ema99?.setData(enabled.has("ema3") ? lineData(values.ema99) : []);
       seriesRef.current.upper?.setData(enabled.has("bollinger") ? lineData(values.upper) : []);
       seriesRef.current.lower?.setData(enabled.has("bollinger") ? lineData(values.lower) : []);
       seriesRef.current.vwap?.setData(enabled.has("vwap") ? lineData(values.vwap) : []);
       seriesRef.current.rsi?.setData(enabled.has("rsi") ? lineData(values.rsi) : []);
+      seriesRef.current.stochK?.setData(enabled.has("stochrsi") ? lineData(values.stochK) : []);
+      seriesRef.current.stochD?.setData(enabled.has("stochrsi") ? lineData(values.stochD) : []);
+      const band = (price: number) => enabled.has("stochrsi") ? candles.map((candle) => ({ time: toTime(candle.time), value: price })) : [];
+      seriesRef.current.stochHigh?.setData(band(STOCH_RSI_HIGH));
+      seriesRef.current.stochLow?.setData(band(STOCH_RSI_LOW));
       seriesRef.current.adx?.setData(enabled.has("adx") ? lineData(values.adx) : []);
       seriesRef.current.atr?.setData(enabled.has("atr") ? lineData(values.atr) : []);
       seriesRef.current.macd?.setData(enabled.has("macd") ? candles.flatMap((candle, index) => values.histogram[index] == null ? [] : [{ time: toTime(candle.time), value: values.histogram[index] as number, color: (values.histogram[index] as number) >= 0 ? "#08a66a" : "#e24755" }]) : []);
@@ -409,6 +488,17 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
     if (enabled.has("volume")) seriesRef.current.volume?.update({ time: lastTime, value: lastCandle.volume, color: lastCandle.close >= lastCandle.open ? "rgba(8,166,106,.45)" : "rgba(226,71,85,.45)" });
     if (enabled.has("sma") && lastValue(values.sma) != null) seriesRef.current.sma?.update({ time: lastTime, value: lastValue(values.sma) as number });
     if (enabled.has("ema") && lastValue(values.ema) != null) seriesRef.current.ema?.update({ time: lastTime, value: lastValue(values.ema) as number });
+    if (enabled.has("ema3")) {
+      if (lastValue(values.ema7) != null) seriesRef.current.ema7?.update({ time: lastTime, value: lastValue(values.ema7) as number });
+      if (lastValue(values.ema20) != null) seriesRef.current.ema20?.update({ time: lastTime, value: lastValue(values.ema20) as number });
+      if (lastValue(values.ema99) != null) seriesRef.current.ema99?.update({ time: lastTime, value: lastValue(values.ema99) as number });
+    }
+    if (enabled.has("stochrsi")) {
+      if (lastValue(values.stochK) != null) seriesRef.current.stochK?.update({ time: lastTime, value: lastValue(values.stochK) as number });
+      if (lastValue(values.stochD) != null) seriesRef.current.stochD?.update({ time: lastTime, value: lastValue(values.stochD) as number });
+      seriesRef.current.stochHigh?.update({ time: lastTime, value: STOCH_RSI_HIGH });
+      seriesRef.current.stochLow?.update({ time: lastTime, value: STOCH_RSI_LOW });
+    }
     if (enabled.has("bollinger")) {
       if (lastValue(values.upper) != null) seriesRef.current.upper?.update({ time: lastTime, value: lastValue(values.upper) as number });
       if (lastValue(values.lower) != null) seriesRef.current.lower?.update({ time: lastTime, value: lastValue(values.lower) as number });
@@ -490,6 +580,7 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
       {/* 1-Tık Hazır Paketler */}
       <div className="mb-2.5 flex flex-wrap items-center gap-1.5 border-b border-line pb-2.5">
         <span className="text-[10px] font-bold uppercase tracking-wider text-ink-400 mr-1">Hazır Paketler:</span>
+        <button type="button" onClick={() => setConfig((p) => ({ ...p, enabled: ["volume", "ema3", "stochrsi"] }))} className="rounded-md border border-line bg-white px-2 py-1 text-[11px] font-semibold text-ink-800 hover:border-ink-400">◎ Varsayılan (EMA 7/20/99 + Stoch RSI)</button>
         <button type="button" onClick={() => setConfig((p) => ({ ...p, enabled: ["volume", "ema", "rsi", "vwap"] }))} className="rounded-md border border-line bg-white px-2 py-1 text-[11px] font-semibold text-accent hover:border-accent hover:bg-accent-soft">🎯 Scalp (EMA+RSI+VWAP)</button>
         <button type="button" onClick={() => setConfig((p) => ({ ...p, enabled: ["volume", "sma", "bollinger", "macd"] }))} className="rounded-md border border-line bg-white px-2 py-1 text-[11px] font-semibold text-violet-600 hover:border-violet-400 hover:bg-violet-50">📈 Trend (SMA+BB+MACD)</button>
         <button type="button" onClick={() => setConfig((p) => ({ ...p, enabled: ["volume", "atr", "adx", "bollinger"] }))} className="rounded-md border border-line bg-white px-2 py-1 text-[11px] font-semibold text-amber-700 hover:border-amber-400 hover:bg-amber-50">⚡ Volatilite (ATR+ADX+BB)</button>
@@ -501,8 +592,25 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
     <div className="mb-2 flex flex-wrap items-center gap-1.5 text-[10px]" aria-label="Gösterge değerleri">
       {enabledIndicators.map(({ id, label }) => {
         const index = candles.length - 1;
-        const values: Record<Indicator, number | null> = { volume: last?.volume ?? null, sma: calculatedValue("sma", index), ema: calculatedValue("ema", index), bollinger: calculatedValue("upper", index), rsi: calculatedValue("rsi", index), macd: calculatedValue("histogram", index), vwap: calculatedValue("vwap", index), atr: calculatedValue("atr", index), adx: calculatedValue("adx", index) };
-        return <span key={id} className="rounded-md border border-line bg-white px-2 py-1 font-mono text-ink-600">{label}{id === "macd" ? " Hist" : id === "bollinger" ? ` Üst ${config.periods.bollinger},2` : id === "sma" || id === "ema" || id === "rsi" || id === "atr" || id === "adx" ? ` ${config.periods[id]}` : ""} · {values[id] == null ? "—" : values[id]?.toLocaleString("tr-TR", { maximumSignificantDigits: 6 })}</span>;
+        const reading: Record<Indicator, number | null> = {
+          volume: last?.volume ?? null,
+          sma: calculatedValue("sma", index),
+          ema: calculatedValue("ema", index),
+          ema3: calculatedValue("ema7", index),
+          bollinger: calculatedValue("upper", index),
+          rsi: calculatedValue("rsi", index),
+          stochrsi: calculatedValue("stochK", index),
+          macd: calculatedValue("histogram", index),
+          vwap: calculatedValue("vwap", index),
+          atr: calculatedValue("atr", index),
+          adx: calculatedValue("adx", index),
+        };
+        const extra = id === "ema3"
+          ? ` 7 ${formatReading(calculatedValue("ema7", index))} · 20 ${formatReading(calculatedValue("ema20", index))} · 99 ${formatReading(calculatedValue("ema99", index))}`
+          : id === "stochrsi"
+            ? ` ${STOCH_RSI_PERIOD} · K ${formatReading(calculatedValue("stochK", index))} · D ${formatReading(calculatedValue("stochD", index))} · bant ${STOCH_RSI_LOW}/${STOCH_RSI_HIGH}`
+            : `${id === "macd" ? " Hist" : id === "bollinger" ? ` Üst ${config.periods.bollinger},2` : id === "sma" || id === "ema" || id === "rsi" || id === "atr" || id === "adx" ? ` ${config.periods[id]}` : ""} · ${formatReading(reading[id])}`;
+        return <span key={id} className="rounded-md border border-line bg-white px-2 py-1 font-mono text-ink-600">{label}{extra}</span>;
       })}
     </div>
     <div
@@ -516,7 +624,7 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
       ref={subContainerRef}
       className={`w-full overflow-hidden rounded-b-lg border-t border-line/70 ${
         compact ? "h-[72px]" : "h-[115px]"
-      } ${config.enabled.some((id) => ["rsi", "macd", "atr", "adx"].includes(id)) ? "" : "hidden"}`}
+      } ${config.enabled.some((id) => SUB_PANE_IDS.includes(id)) ? "" : "hidden"}`}
     />
     <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-ink-400" role="status">
       <span>{live ? `WebSocket canlı · son mum ${tickAge}s önce` : `REST yedek · son yenileme ${restAge == null ? "bekleniyor" : `${restAge}s önce`}`}{error ? ` · ${error}` : ""}</span>
@@ -524,7 +632,7 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
     </div>
   </section>;
 
-  function calculatedValue(key: "sma" | "ema" | "upper" | "rsi" | "histogram" | "vwap" | "atr" | "adx", index: number): number | null {
+  function calculatedValue(key: "sma" | "ema" | "ema7" | "ema20" | "ema99" | "upper" | "rsi" | "stochK" | "stochD" | "histogram" | "vwap" | "atr" | "adx", index: number): number | null {
     const value = values[key][index];
     return value == null ? null : value;
   }

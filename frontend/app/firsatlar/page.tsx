@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
+import AppLink from "../components/AppLink";
 import { apiRequest } from "../lib/api";
 import { usePoll } from "../lib/hooks";
 import { formatPct, fmtDateTime, formatPrice } from "../lib/format";
@@ -229,13 +229,13 @@ function LiveFeed({
                     </button>
                   </td>
                   <td className="py-2.5 pr-3">
-                    <Link
+                    <AppLink
                       href={`/grafik?symbol=${encodeURIComponent(view.symbol)}`}
                       className="font-mono font-bold text-ink-900 hover:text-accent transition-colors"
                       title={`${view.symbol} grafiğini aç`}
                     >
                       {view.base}
-                    </Link>
+                    </AppLink>
                     <span className="text-xs text-ink-400"> / TRY</span>
                   </td>
                   <td className="py-2.5 pr-3">
@@ -271,18 +271,18 @@ function LiveFeed({
                   </td>
                   <td className="py-2.5 text-right">
                     <div className="flex items-center justify-end gap-1.5">
-                      <Link
+                      <AppLink
                         href={`/grafik?symbol=${encodeURIComponent(view.symbol)}`}
                         className="rounded border border-line bg-white px-2 py-1 text-[11px] font-semibold text-accent hover:bg-accent-soft"
                       >
                         Grafik
-                      </Link>
-                      <Link
+                      </AppLink>
+                      <AppLink
                         href={`/?symbol=${encodeURIComponent(view.symbol)}`}
                         className="rounded bg-accent/10 px-2 py-1 text-[11px] font-semibold text-accent hover:bg-accent hover:text-white transition-colors"
                       >
                         İşlem
-                      </Link>
+                      </AppLink>
                     </div>
                   </td>
                 </tr>
@@ -671,13 +671,13 @@ function HistorySection({
                     </td>
                     <td className="py-2.5 pr-3 font-mono text-xs text-ink-500">{fmtDateTime(n.detected_at)}</td>
                     <td className="py-2.5 pr-3">
-                      <Link
+                      <AppLink
                         href={`/grafik?symbol=${encodeURIComponent(sym)}`}
                         className="font-mono font-bold text-ink-900 hover:text-accent transition-colors"
                         title={`${sym} grafiğini aç`}
                       >
                         {baseAsset(sym)}
-                      </Link>
+                      </AppLink>
                       <span className="text-xs text-ink-400"> / TRY</span>
                     </td>
                     <td className="py-2.5 pr-3">

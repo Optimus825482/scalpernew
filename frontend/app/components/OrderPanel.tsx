@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import AppLink from "./AppLink";
 import { apiRequest, API_BASE } from "../lib/api";
 import { usePoll } from "../lib/hooks";
 import { useLiveMessages } from "../lib/liveSocket";
@@ -170,7 +170,8 @@ export default function OrderPanel({
 
   function sltpPctFill(target: "tp" | "sl", pct: number) {
     if (!currentPrice) return;
-    const value = target === "tp" ? currentPrice * (1 + pct / 100) : currentPrice * (1 - pct / 100);
+    const magnitude = Math.abs(pct);
+    const value = target === "tp" ? currentPrice * (1 + magnitude / 100) : currentPrice * (1 - magnitude / 100);
     if (target === "tp") setTpPrice(value.toFixed(priceDigits(currentPrice)));
     else setSlPrice(value.toFixed(priceDigits(currentPrice)));
   }
@@ -433,7 +434,7 @@ export default function OrderPanel({
           title={!binance.data?.configured ? "Önce Ayarlar'dan Binance TR API anahtarını kaydet" : !binance.data?.sell_enabled ? "Ayarlar'da gerçek işlem kapısını aç" : `Gerçek Binance TR ${kind} emri gönder`}>
           {busy ? "Gönderiliyor…" : `${side === "BUY" ? "ALIM" : "SATIM"} ${kind === "STOP_LIMIT" ? "STOP-LIMIT" : kind === "LIMIT" ? "LİMİT" : "PİYASA"} EMRİNİ GÖZDEN GEÇİR`}
         </Button>
-        {!binance.data?.configured && <p className="mt-2 text-center text-[11px] text-warn">Gerçek hesabı bağlamak için <Link href="/ayarlar" className="underline">Ayarlar</Link>'dan Binance TR API anahtarlarını kaydedin.</p>}
+        {!binance.data?.configured && <p className="mt-2 text-center text-[11px] text-warn">Gerçek hesabı bağlamak için <AppLink href="/ayarlar" className="underline">Ayarlar</AppLink>'dan Binance TR API anahtarlarını kaydedin.</p>}
         {binance.data?.configured && !binance.data.sell_enabled && <p className="mt-2 text-center text-[11px] text-warn">Gerçek emir kapısı kapalı. Ayarlar'dan etkinleştirin.</p>}
         {message && <p role="status" className={`mt-2 text-center text-[11px] ${message.tone === "gain" ? "text-gain" : message.tone === "loss" ? "text-loss" : "text-ink-500"}`}>{message.text}</p>}
         {receipt && <div className="mt-3 rounded-lg border border-line bg-slate-50 p-3 text-[11px]">

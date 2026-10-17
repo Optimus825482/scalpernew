@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import AppLink from "../components/AppLink";
 import { apiRequest } from "../lib/api";
 import { usePoll } from "../lib/hooks";
 import { fmtDateTime, formatFixed, formatPrice } from "../lib/format";
@@ -155,13 +155,13 @@ export default function EmirlerPage() {
             return <tr key={`${order.symbol}-${order.orderId}`} className="border-t border-line">
               <td className="py-2 pr-3 font-mono text-xs text-ink-500">{fmtDateTime(order.time)}</td>
               <td className="py-2 pr-3 font-mono font-semibold text-ink-900">
-                <Link
+                <AppLink
                   href={`/grafik?symbol=${encodeURIComponent(order.symbol)}`}
                   className="hover:text-accent transition-colors underline decoration-dotted"
                   title={`${order.symbol} grafiğini aç`}
                 >
                   {baseAsset(order.symbol)}
-                </Link>
+                </AppLink>
               </td>
               <td className="py-2 pr-3"><Badge tone={String(order.side).toUpperCase() === "BUY" || String(order.side) === "1" ? "gain" : "loss"}>{sideLabel(order.side)}</Badge></td>
               <td className="py-2 pr-3 text-xs text-ink-600">{isOco ? `OCO${stop > 0 ? " · tetik " + formatPrice(stop) : ""}` : order.type || "—"}</td>

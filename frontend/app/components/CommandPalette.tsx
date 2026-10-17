@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { apiRequest } from "../lib/api";
 import { useWatchlist } from "../lib/watchlist";
 import { sound } from "../lib/sound";
@@ -43,7 +42,7 @@ export default function CommandPalette({
   onSelectSymbol?: (symbol: string) => void;
   onTriggerScan?: () => void;
 }) {
-  const router = useRouter();
+  const go = (href: string) => { window.location.assign(href); };
   const [query, setQuery] = useState("");
   const [symbols, setSymbols] = useState<string[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -121,7 +120,7 @@ export default function CommandPalette({
           } else {
             window.dispatchEvent(new CustomEvent("odak:trigger-scan"));
             if (typeof window !== "undefined" && window.location.pathname !== "/") {
-              router.push("/?scan=1");
+              go("/?scan=1");
             }
           }
         },
@@ -136,7 +135,7 @@ export default function CommandPalette({
         keywords: ["grafik", "grafikler", "chart", "charts", "analiz", "teknik", "mum", "tradingview"],
         onSelect: () => {
           onClose();
-          router.push("/grafik");
+          go("/grafik");
         },
       },
       {
@@ -149,7 +148,7 @@ export default function CommandPalette({
         keywords: ["emir", "emirler", "orders", "acik", "limit", "stop", "iptal", "bekleyen"],
         onSelect: () => {
           onClose();
-          router.push("/emirler");
+          go("/emirler");
         },
       },
       {
@@ -162,7 +161,7 @@ export default function CommandPalette({
         keywords: ["firsat", "firsatlar", "sinyal", "opportunities", "radar"],
         onSelect: () => {
           onClose();
-          router.push("/firsatlar");
+          go("/firsatlar");
         },
       },
       {
@@ -175,7 +174,7 @@ export default function CommandPalette({
         keywords: ["gecmis", "gecmis islemler", "history", "kar", "zarar", "rapor", "pnl"],
         onSelect: () => {
           onClose();
-          router.push("/gecmis-islemler");
+          go("/gecmis-islemler");
         },
       },
       {
@@ -188,7 +187,7 @@ export default function CommandPalette({
         keywords: ["alarm", "alarmlar", "alerts", "bildirim", "fiyat", "zil"],
         onSelect: () => {
           onClose();
-          router.push("/alarmlar");
+          go("/alarmlar");
         },
       },
       {
@@ -201,7 +200,7 @@ export default function CommandPalette({
         keywords: ["ayar", "ayarlar", "settings", "api", "anahtar", "borsa", "hesap"],
         onSelect: () => {
           onClose();
-          router.push("/ayarlar");
+          go("/ayarlar");
         },
       },
     ];
@@ -266,7 +265,7 @@ export default function CommandPalette({
             if (typeof window !== "undefined") {
               const path = window.location.pathname;
               if (path !== "/" && path !== "/grafik") {
-                router.push(`/grafik?symbol=${encodeURIComponent(sym)}`);
+                go(`/grafik?symbol=${encodeURIComponent(sym)}`);
               }
             }
           }
@@ -275,7 +274,7 @@ export default function CommandPalette({
     });
 
     return list;
-  }, [normQuery, cleanSymbolQuery, symbols, recents, isFavorite, onClose, onSelectSymbol, onTriggerScan, router]);
+  }, [normQuery, cleanSymbolQuery, symbols, recents, isFavorite, onClose, onSelectSymbol, onTriggerScan]);
 
   // Klavye olayları (Up/Down, Enter, Esc)
   useEffect(() => {

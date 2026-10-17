@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import AppLink from "./AppLink";
 import { usePoll } from "../lib/hooks";
 import { formatFixed, formatPct, formatPrice, formatSignedTL } from "../lib/format";
 import type { BinancePositions, BinanceSettings } from "../lib/types";
@@ -97,12 +97,12 @@ export default function ActiveTradesTable({
                 </td>
                 <td className="py-2.5 text-right">
                   <div className="flex items-center justify-end gap-1.5">
-                    <Link
+                    <AppLink
                       href={`/grafik?symbol=${encodeURIComponent(symbol)}`}
                       className="rounded border border-line bg-white px-2 py-1 text-[11px] font-semibold text-accent hover:bg-accent-soft"
                     >
                       Grafik
-                    </Link>
+                    </AppLink>
                     <button
                       type="button"
                       onClick={() => onSelectSymbol?.(symbol)}
