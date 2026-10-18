@@ -43,10 +43,16 @@ export default function Home() {
   const [scanBusy, setScanBusy] = useState(false);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [nowSec, setNowSec] = useState(() => Date.now() / 1000);
   const { favorites, isFavorite, toggleFavorite } = useWatchlist();
   const scan = usePoll<UnifiedScanResponse>("/api/unified-scan/latest", 20_000, 8_000);
   const prefs = usePoll<{ preferences?: { min_score?: number } }>("/api/user/preferences", 60_000);
   const minScore = Math.max(0, Number(prefs.data?.preferences?.min_score ?? 0)) || 0;
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowSec(Date.now() / 1000), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     try {
@@ -128,6 +134,8 @@ export default function Home() {
   );
 
   const generatedAt = Number(run?.completed_at ?? run?.generated_at ?? 0);
+  const SCAN_EVERY_SEC = 90;
+  const nextScanSec = generatedAt > 0 ? Math.max(0, Math.ceil(SCAN_EVERY_SEC - (nowSec - generatedAt))) : null;
   const scanKey = String(run?.scan_id || generatedAt || "");
   useMemo(() => {
     if (!scanKey) return;
@@ -226,6 +234,9 @@ export default function Home() {
           <span>{run ? `${views.length} aday` : "Henüz tarama yok"}</span>
           <span className="text-ink-400">
             {generatedAt ? `Son tarama ${fmtDateTime(generatedAt)}` : "Fiyat verisi public piyasa akışından"}
+          </span>
+          <span className="rounded-md border border-line bg-canvas px-2 py-1 font-mono font-semibold text-ink-800" role="timer" aria-live="off">
+            {scanBusy ? "taranıyor" : nextScanSec == null ? "ilk tarama bekleniyor" : nextScanSec === 0 ? "sonraki tarama şimdi" : `sonraki tarama ${Math.floor(nextScanSec / 60)}:${String(nextScanSec % 60).padStart(2, "0")}`}
           </span>
           {scan.error && run && <span className="text-amber-700">Bağlantı koptu · son görüntü gösteriliyor</span>}
         </div>
