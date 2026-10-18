@@ -31,6 +31,12 @@ type EngineSummary = {
 
 const PAGE_SIZE = 25;
 
+function todayIstanbul(): string {
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Istanbul", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+  const get = (type: string) => parts.find((part) => part.type === type)?.value || "00";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
 export default function FirsatlarPage() {
   const [tab, setTab] = useState<Tab>("live");
   const [search, setSearch] = useState("");
@@ -609,6 +615,18 @@ function HistorySection({
               className="rounded-lg border border-line bg-white px-2 py-1.5 text-sm outline-none focus:border-accent"
             />
           </div>
+          <button
+            type="button"
+            onClick={() => {
+              const today = todayIstanbul();
+              setStartDate(today);
+              setEndDate(today);
+              setPage(0);
+            }}
+            className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${startDate === todayIstanbul() && endDate === todayIstanbul() ? "border-accent bg-accent text-white" : "border-line text-accent hover:bg-accent-soft"}`}
+          >
+            Bugün
+          </button>
           <div className="flex flex-col gap-1">
             <label className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">Min Skor</label>
             <input

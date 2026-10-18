@@ -1,4 +1,4 @@
-import asyncio, ast, json, logging, os, re, time
+import asyncio, ast, base64, hashlib, json, logging, os, re, time
 from urllib.error import HTTPError
 from urllib.request import Request
 from cryptography.fernet import Fernet
@@ -473,31 +473,68 @@ def _trim_tool_result(value):
         return value if not isinstance(value, str) else text
     return {"truncated": True, "original_chars": len(text), "preview": text[:limit]}
 
-def _usable_fernet_key(raw: str) -> str | None:
-    """Fernet anahtarını tırnak ve boşluktan arındırır. Geçersizse None."""
-    key = str(raw or "").strip().strip('"').strip("'").strip()
-    if not key:
-        return None
+_DERIVED_FERNET_WARNED: set[str] = set()
+
+
+def _clean_secret(raw: str) -> str:
+    return str(raw or "").strip().strip('"').strip("'").strip()
+
+
+def _is_fernet_key(key: str) -> bool:
     try:
         Fernet(key.encode())
     except Exception:
+        return False
+    return True
+
+
+def _usable_fernet_key(raw: str) -> str | None:
+    """Tırnak, boşluk ve eksik base64 dolgusunu tolere eder. Geçersizse None."""
+    key = _clean_secret(raw)
+    if not key:
         return None
-    return key
+    if _is_fernet_key(key):
+        return key
+    padding = "=" * ((4 - len(key) % 4) % 4)
+    try:
+        decoded = base64.urlsafe_b64decode(key + padding)
+    except Exception:
+        return None
+    if len(decoded) != 32:
+        return None
+    repaired = base64.urlsafe_b64encode(decoded).decode()
+    return repaired if _is_fernet_key(repaired) else None
+
+
+def _derive_fernet_key(secret: str) -> str:
+    """Geçerli Fernet olmayan gizli metinden sabit 32 bayt anahtar üretir."""
+    digest = hashlib.sha256(secret.encode("utf-8")).digest()
+    return base64.urlsafe_b64encode(digest).decode()
 
 
 def _fernet(primary_env="LLM_ENCRYPTION_KEY", fallback_env=None):
+    candidates = []
     for env_name in (primary_env, fallback_env):
         if not env_name:
             continue
-        key = _usable_fernet_key(os.getenv(env_name, ""))
-        if key:
-            return Fernet(key.encode())
+        raw = os.getenv(env_name, "")
+        usable = _usable_fernet_key(raw)
+        if usable:
+            return Fernet(usable.encode())
+        secret = _clean_secret(raw)
+        if secret:
+            candidates.append((env_name, secret))
+    if candidates:
+        env_name, secret = candidates[0]
+        if env_name not in _DERIVED_FERNET_WARNED:
+            _DERIVED_FERNET_WARNED.add(env_name)
+            logger.warning(
+                "%s geçerli bir Fernet anahtarı değil; aynı gizli metinden sabit anahtar türetildi",
+                env_name,
+            )
+        return Fernet(_derive_fernet_key(secret).encode())
     names = " veya ".join(name for name in (primary_env, fallback_env) if name)
-    raise RuntimeError(
-        f"{names} geçerli bir Fernet anahtarı değil. "
-        "32 bayt url-safe base64 olmalı. Üretmek için: "
-        "python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
-    )
+    raise RuntimeError(f"{names} boş. Binance anahtarını şifrelemek için bu değişken gerekli.")
 
 def encrypt_key(value, primary_env="LLM_ENCRYPTION_KEY", fallback_env=None):
     return _fernet(primary_env, fallback_env).encrypt(value.encode()).decode()

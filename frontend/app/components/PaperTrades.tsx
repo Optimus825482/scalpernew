@@ -31,12 +31,22 @@ function chartHref(symbol: string) {
   return `/grafik?symbol=${encodeURIComponent(symbol)}&interval=5m`;
 }
 
+function pnlLabel(pnl: { try: number | null; pct: number | null }): string {
+  if (pnl.try == null) return "—";
+  if (pnl.pct == null || !Number.isFinite(pnl.pct)) return formatSignedTL(pnl.try);
+  return `${formatSignedTL(pnl.try)} (${pnl.pct.toFixed(2)}%)`;
+}
+
 function pnlOf(trade: PaperTrade): { try: number | null; pct: number | null } {
   if (trade.status !== "open") {
-    return {
-      try: trade.pnl == null ? null : Number(trade.pnl),
-      pct: trade.pnl_pct == null ? null : Number(trade.pnl_pct),
-    };
+    const pnlTry = trade.pnl == null ? null : Number(trade.pnl);
+    let pct = trade.pnl_pct == null ? null : Number(trade.pnl_pct);
+    if (pct == null || !Number.isFinite(pct)) {
+      const entry = Number(trade.entry_price || 0);
+      const qty = Number(trade.quantity || 0);
+      pct = pnlTry != null && entry > 0 && qty > 0 ? (pnlTry / (entry * qty)) * 100 : null;
+    }
+    return { try: pnlTry, pct };
   }
   const entry = Number(trade.entry_price || 0);
   const qty = Number(trade.quantity || 0);
@@ -103,7 +113,7 @@ export default function PaperTrades() {
                     <td className="py-2 pr-3 text-right font-mono">{formatPrice(trade.entry_price)}</td>
                     <td className="py-2 pr-3 text-right font-mono">{formatPrice(trade.current_price)}</td>
                     <td className={`py-2 pr-3 text-right font-mono ${tone}`}>
-                      {pnl.try == null ? "—" : `${formatSignedTL(pnl.try)} (${pnl.pct?.toFixed(2)}%)`}
+                      {pnlLabel(pnl)}
                     </td>
                     <td className="py-2 pr-3 text-right font-mono text-ink-600">{formatPrice(trade.take_profit)}</td>
                     <td className="py-2 text-right">
@@ -127,7 +137,7 @@ export default function PaperTrades() {
                 <li key={trade.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-line py-1.5">
                   <AppLink href={chartHref(trade.symbol)} className="font-mono font-semibold text-ink-800 hover:text-accent" title={`${trade.symbol} grafiğini aç`}>{trade.symbol}</AppLink>
                   <Badge tone="neutral">{trade.exit_reason || "kapandı"}</Badge>
-                  <span className={`font-mono ${tone}`}>{pnl.try == null ? "—" : formatSignedTL(pnl.try)}</span>
+                  <span className={`font-mono ${tone}`}>{pnlLabel(pnl)}</span>
                   <span className="font-mono text-ink-400">{fmtDateTime(trade.exit_time || trade.entry_time)}</span>
                 </li>
               );
