@@ -117,7 +117,7 @@ function ribbonBase(symbol: string) {
   return name;
 }
 
-function ribbonBuyIndexes(symbol: string, candles: Candle[], fast: Array<number | null>, mid: Array<number | null>, slow: Array<number | null>): number[] {
+function ribbonBuyIndexes(symbol: string, candles: Candle[], fast: Array<number | null>, mid: Array<number | null>, slow: Array<number | null>, stochK: Array<number | null>): number[] {
   if (PEGGED_BASES.has(ribbonBase(symbol))) return [];
   const hits: number[] = [];
   const lastClosed = candles.length - 1;
@@ -129,6 +129,8 @@ function ribbonBuyIndexes(symbol: string, candles: Candle[], fast: Array<number 
     const currSlow = slow[index];
     if (prevFast == null || prevMid == null || currFast == null || currMid == null || currSlow == null) continue;
     if (!(prevFast <= prevMid && currFast > currMid && currFast > currSlow && currMid > currSlow)) continue;
+    const stoch = stochK[index];
+    if (stoch == null || stoch > STOCH_RSI_HIGH) continue;
     const price = candles[index]?.close ?? 0;
     if (!(price > 0)) continue;
     const span = (Math.max(currFast, currMid, currSlow) - Math.min(currFast, currMid, currSlow)) / price * 100;
@@ -698,7 +700,7 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
       return;
     }
     const place = () => {
-      const hits = ribbonBuyIndexes(symbol, candles, values.ema7, values.ema20, values.ema99);
+      const hits = ribbonBuyIndexes(symbol, candles, values.ema7, values.ema20, values.ema99, values.stochK);
       const next: Array<{ time: number; x: number; y: number }> = [];
       for (const index of hits) {
         const candle = candles[index];
@@ -757,7 +759,7 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
           </div>
         )}
         {(signalMarks.length > 0 || config.enabled.includes("ema3")) && (
-          <span className="text-[10px] font-medium text-ink-500">son bildirim · son hedef · yeşil BUY: EMA 7 EMA 20’yi EMA 99 üstünde yukarı kesince · Stoch 20 altı yeşil ok, 80 üstü kırmızı ok</span>
+          <span className="text-[10px] font-medium text-ink-500">son bildirim · son hedef · yeşil BUY: EMA kesişimi ve Stoch RSI 80’in altında · Stoch 20 altı yeşil ok, 80 üstü kırmızı ok</span>
         )}
       </div>
 

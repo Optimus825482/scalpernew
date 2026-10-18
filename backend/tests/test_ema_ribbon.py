@@ -2,7 +2,7 @@
 import unittest
 from unittest import mock
 
-from app.ema_ribbon import bodies_are_flat, ema_series, is_pegged_symbol, ribbon_buy_at, ribbon_is_compressed, select_recent_cross, tape_is_flat
+from app.ema_ribbon import bodies_are_flat, ema_series, is_pegged_symbol, ribbon_buy_at, ribbon_is_compressed, select_recent_cross, stoch_rsi_too_high, tape_is_flat
 
 
 class EmaRibbonTests(unittest.TestCase):
@@ -70,6 +70,19 @@ class EmaRibbonTests(unittest.TestCase):
         mid = [1.0, 1.002, 1.000]
         slow = [1.0, 1.000, 1.000]
         with mock.patch("app.ema_ribbon.ema_series", side_effect=[fast, mid, slow]):
+            self.assertIsNone(select_recent_cross(closes, stamps, now_ms=3_500, window_ms=5_000))
+
+    def test_stoch_rsi_above_80_blocks_buy(self):
+        self.assertTrue(stoch_rsi_too_high(80.1))
+        self.assertFalse(stoch_rsi_too_high(80.0))
+        self.assertFalse(stoch_rsi_too_high(None))
+        closes = [1.0, 1.0, 1.0]
+        stamps = [1_000, 2_000, 3_000]
+        fast = [1.0, 1.0, 2.0]
+        mid = [1.0, 2.0, 1.0]
+        slow = [0.0, 0.0, 0.0]
+        with mock.patch("app.ema_ribbon.ema_series", side_effect=[fast, mid, slow]), \
+             mock.patch("app.ema_ribbon.stoch_rsi_k", return_value=[None, None, 91.0]):
             self.assertIsNone(select_recent_cross(closes, stamps, now_ms=3_500, window_ms=5_000))
 
     def test_down_cross_is_not_buy(self):

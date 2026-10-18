@@ -26,6 +26,8 @@ RIBBON_MIN_RANGE_PCT = 0.80
 RIBBON_MIN_SPAN_PCT = 0.40
 RIBBON_DEAD_STICK_PCT = 0.08
 RIBBON_DEAD_STICK_RATIO = 0.70
+STOCH_RSI_PERIOD = 14
+STOCH_RSI_MAX = 80.0
 # Sabit veya altına endeksli tahta. Kesişim gürültüdür, bildirim ve paper açılmaz.
 PEGGED_BASES = frozenset({
     "USDT", "USDC", "FDUSD", "TUSD", "BUSD", "DAI", "USDP", "EUR",
@@ -44,6 +46,59 @@ def ema_series(values: list[float], period: int) -> list[float | None]:
         current = values[index] * alpha + current * (1 - alpha)
         output[index] = current
     return output
+
+
+def _wilder_rsi(closes: list[float], period: int = STOCH_RSI_PERIOD) -> list[float | None]:
+    rsi: list[float | None] = [None] * len(closes)
+    if len(closes) <= period:
+        return rsi
+    gains: list[float] = []
+    losses: list[float] = []
+    for index in range(1, len(closes)):
+        delta = closes[index] - closes[index - 1]
+        gains.append(max(0.0, delta))
+        losses.append(max(0.0, -delta))
+    if len(gains) < period:
+        return rsi
+    gain = sum(gains[:period]) / period
+    loss = sum(losses[:period]) / period
+
+    def reading(average_gain: float, average_loss: float) -> float:
+        if average_loss == 0:
+            return 100.0
+        return 100.0 - 100.0 / (1.0 + average_gain / average_loss)
+
+    rsi[period] = reading(gain, loss)
+    for index in range(period + 1, len(closes)):
+        gain = (gain * (period - 1) + gains[index - 1]) / period
+        loss = (loss * (period - 1) + losses[index - 1]) / period
+        rsi[index] = reading(gain, loss)
+    return rsi
+
+
+def stoch_rsi_k(closes: list[float], period: int = STOCH_RSI_PERIOD, smooth: int = 3) -> list[float | None]:
+    """Grafikteki Stoch RSI %K. RSI 14, stokastik 14, K yumuşatma 3."""
+    rsi = _wilder_rsi(closes, period)
+    raw: list[float | None] = [None] * len(closes)
+    for index in range(period - 1, len(rsi)):
+        window = rsi[index - period + 1:index + 1]
+        if any(point is None for point in window) or rsi[index] is None:
+            continue
+        low = min(window)
+        high = max(window)
+        raw[index] = 50.0 if high == low else (float(rsi[index]) - low) / (high - low) * 100.0
+    k_line: list[float | None] = [None] * len(closes)
+    for index in range(smooth - 1, len(raw)):
+        window = raw[index - smooth + 1:index + 1]
+        if any(point is None for point in window):
+            continue
+        k_line[index] = sum(float(point) for point in window if point is not None) / smooth
+    return k_line
+
+
+def stoch_rsi_too_high(k_value: float | None, ceiling: float = STOCH_RSI_MAX) -> bool:
+    """BUY için %K 80'in üzerinde olamaz. Ölçülemiyorsa engelleme."""
+    return k_value is not None and k_value > ceiling
 
 
 def ribbon_buy_at(fast: list[float | None], mid: list[float | None], slow: list[float | None], index: int) -> bool:
@@ -159,11 +214,14 @@ def select_recent_cross(
     fast = ema_series(closes, RIBBON_FAST)
     mid = ema_series(closes, RIBBON_MID)
     slow = ema_series(closes, RIBBON_SLOW)
+    k_line = stoch_rsi_k(closes)
     earliest = int(now_ms) - int(window_ms)
     for index in range(len(closes) - 1, 0, -1):
         if int(stamps[index]) < earliest:
             break
         if not ribbon_buy_at(fast, mid, slow, index):
+            continue
+        if stoch_rsi_too_high(k_line[index] if index < len(k_line) else None):
             continue
         curr_fast = fast[index]
         curr_mid = mid[index]
