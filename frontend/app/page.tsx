@@ -141,11 +141,13 @@ export default function Home() {
       if (latestSymbols.has(view.symbol)) {
         if (!ribbon) continue;
         const current = unique.get(view.symbol);
-        if (current && !current.sourceCodes.includes("ema_ribbon")) {
+        if (current) {
+          const frames = Array.from(new Set([...current.ribbonTimeframes, ...view.ribbonTimeframes]));
           unique.set(view.symbol, {
             ...current,
-            sourceCodes: [...current.sourceCodes, "ema_ribbon"],
+            sourceCodes: current.sourceCodes.includes("ema_ribbon") ? current.sourceCodes : [...current.sourceCodes, "ema_ribbon"],
             sources: current.sources.includes("EMA Kurdele") ? current.sources : [...current.sources, "EMA Kurdele"],
+            ribbonTimeframes: frames,
           });
         }
         continue;
@@ -177,8 +179,11 @@ export default function Home() {
   );
 
   const generatedAt = Number(run?.completed_at ?? run?.generated_at ?? 0);
-  const SCAN_EVERY_SEC = 90;
-  const nextScanSec = generatedAt > 0 ? Math.max(0, Math.ceil(SCAN_EVERY_SEC - (nowSec - generatedAt))) : null;
+  const scanEvery = Math.max(30, Number(run?.interval_sec) || 90);
+  const nextScanSec = generatedAt > 0 ? Math.max(0, Math.ceil(scanEvery - (nowSec - generatedAt))) : null;
+  const serverScanning = Boolean(latestRun?.scanning);
+  const scanDue = nextScanSec === 0;
+  const scanRunning = scanBusy || serverScanning || scanDue;
   const scanKey = String(run?.scan_id || generatedAt || "");
   useMemo(() => {
     if (!scanKey) return;
@@ -186,6 +191,16 @@ export default function Home() {
   }, [scanKey, views]);
   const stale = generatedAt > 0 && Date.now() / 1000 - generatedAt > 120;
   const loadingFirst = scan.loading && !run;
+  const dueStamp = useRef(0);
+  useEffect(() => {
+    if (!scanDue) return;
+    if (dueStamp.current !== generatedAt) {
+      dueStamp.current = generatedAt;
+      scan.reload();
+    }
+    const timer = window.setInterval(() => scan.reload(), 4000);
+    return () => window.clearInterval(timer);
+  }, [scanDue, generatedAt, scan.reload]);
 
   // KLAVYE KISAYOLLARI (TradingView tarzı): j/k aday gezinme, Enter panele aktarım,
   // f favori, m manuel tarama, ? yardım. Metin alanlarında devre dışıdır.
@@ -273,13 +288,13 @@ export default function Home() {
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-white/70 px-4 py-2.5 text-xs text-ink-600 shadow-xs">
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-semibold text-ink-900">Birleşik Piyasa Taraması</span>
-          <Badge tone={stale ? "warn" : "gain"}>{stale ? "ESKİ VERİ" : "Salt-veri"}</Badge>
+          <Badge tone={scanRunning ? "warn" : stale ? "warn" : "gain"}>{scanRunning ? "taranıyor" : stale ? "ESKİ VERİ" : "Salt-veri"}</Badge>
           <span>{run ? `${views.length} aday` : "Henüz tarama yok"}</span>
           <span className="text-ink-400">
             {generatedAt ? `Son tarama ${fmtDateTime(generatedAt)}` : "Fiyat verisi public piyasa akışından"}
           </span>
           <span className="rounded-md border border-line bg-canvas px-2 py-1 font-mono font-semibold text-ink-800" role="timer" aria-live="off">
-            {scanBusy ? "taranıyor" : nextScanSec == null ? "ilk tarama bekleniyor" : nextScanSec === 0 ? "sonraki tarama şimdi" : `sonraki tarama ${Math.floor(nextScanSec / 60)}:${String(nextScanSec % 60).padStart(2, "0")}`}
+            {scanRunning ? "taranıyor" : nextScanSec == null ? "ilk tarama bekleniyor" : `sonraki tarama ${Math.floor(nextScanSec / 60)}:${String(nextScanSec % 60).padStart(2, "0")}`}
           </span>
           {scan.error && run && <span className="text-amber-700">Bağlantı koptu · son görüntü gösteriliyor</span>}
         </div>

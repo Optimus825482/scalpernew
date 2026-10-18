@@ -90,7 +90,16 @@ _loop_task = None
 # ortak kilit — çift tarama/çift journal/state yarışını önler (2026-09-04).
 _scan_lock = asyncio.Lock()
 _combined_scan_lock = asyncio.Lock()
-_unified_scan_cache: dict = {"generated_at": 0.0, "candidates": [], "recent_candidates": []}
+_unified_scan_cache: dict = {
+    "generated_at": 0.0,
+    "candidates": [],
+    "recent_candidates": [],
+    "scanning": False,
+    "scan_started_at": 0.0,
+    "last_error": None,
+}
+UNIFIED_SCAN_INTERVAL_SEC = 90
+UNIFIED_SCAN_TIMEOUT_SEC = 80
 _RECENT_SCAN_WINDOW_SEC = 15 * 60
 _recent_by_symbol: dict[str, dict] = {}
 
@@ -4325,15 +4334,18 @@ async def unified_scan_latest(request: Request):
         raise HTTPException(status_code=401, detail="Kimlik doğrulama gerekli")
     generated_at = float(_unified_scan_cache.get("generated_at") or 0)
     candidates = _unified_scan_cache.get("candidates") or []
-    # 20 sn çok sıktı: tarama 30 sn'den uzun sürdüğü için anasayfa açıkken
-    # sunucu neredeyse sürekli tarıyordu ve paper sayfası da kuyrukta kalıyordu.
-    if not generated_at or time.time() - generated_at > 90:
+    # Sayfa açıkken geri sayım dolunca tarama kendiliğinden başlar. Asılı kalan
+    # görev yeni taramayı sonsuza dek engellemesin.
+    if not generated_at or time.time() - generated_at > UNIFIED_SCAN_INTERVAL_SEC:
         _kick_unified_scan_refresh()
     recent = _unified_scan_cache.get("recent_candidates") or []
     return {"run": {"scan_id": None, "generated_at": generated_at,
                      "algorithm_version": "combined-v1", "candidates": candidates,
                      "recent_candidates": recent,
-                     "count": len(candidates)}}
+                     "count": len(candidates),
+                     "scanning": bool(_unified_scan_cache.get("scanning")),
+                     "interval_sec": UNIFIED_SCAN_INTERVAL_SEC,
+                     "last_error": _unified_scan_cache.get("last_error")}}
 
 
 _ribbon_notified: dict[str, int] = {}
@@ -4414,40 +4426,74 @@ async def _open_paper_after_scan(candidates: list) -> None:
         logger.debug("tarama sonrası paper açılışı: %s", exc)
 
 
-async def _refresh_unified_scan_async() -> None:
-    """Birleşik taramayı arka planda çalıştırıp cache'i tazeler (hata yutar)."""
-    global _unified_scan_refresh_task
-    try:
-        async with _combined_scan_lock:
-            # Kilit sırasında başka bir yol (manuel tarama/diğer görev) tazelediyse
-            # tekrar tarama — çift taramayı önler.
-            if _unified_scan_cache.get("generated_at") and \
-                    time.time() - float(_unified_scan_cache["generated_at"]) <= 90:
-                return
-            candidates = await _combined_scan_rows()
+async def _run_unified_scan_once() -> None:
+    """Bir tur birleşik tarama. Taze önbellek varsa hemen döner.
+
+    Asılı tarama zaman aşımıyla bırakılır; başarılı tur `generated_at` yazar
+    ve geri sayım bu andan yeniden başlar.
+    """
+    async with _combined_scan_lock:
+        generated = float(_unified_scan_cache.get("generated_at") or 0)
+        if generated and time.time() - generated <= UNIFIED_SCAN_INTERVAL_SEC:
+            return
+        _unified_scan_cache["scanning"] = True
+        _unified_scan_cache["scan_started_at"] = time.time()
+        try:
+            candidates = await asyncio.wait_for(
+                _combined_scan_rows(), timeout=UNIFIED_SCAN_TIMEOUT_SEC)
             scanned_at = time.time()
             _unified_scan_cache.update(
                 generated_at=scanned_at,
                 candidates=candidates,
                 recent_candidates=fold_recent_candidates(candidates, scanned_at),
+                last_error=None,
             )
-            # Paper açılışı kilidin DIŞINDA, ayrı görevde: tarama kilidi ve
-            # sayfa istekleri alım denemesini beklemesin.
             asyncio.get_running_loop().create_task(_open_paper_after_scan(candidates))
-    except Exception as exc:
-        logger.debug("arka plan birleşik taraması başarısız: %s", exc)
+        except asyncio.TimeoutError:
+            _unified_scan_cache["last_error"] = "zaman aşımı"
+            logger.warning("birleşik tarama %s sn içinde bitmedi", UNIFIED_SCAN_TIMEOUT_SEC)
+        except Exception as exc:
+            _unified_scan_cache["last_error"] = "tamamlanamadı"
+            logger.warning("arka plan birleşik taraması başarısız: %s", exc)
+        finally:
+            _unified_scan_cache["scanning"] = False
+
+
+async def _refresh_unified_scan_async() -> None:
+    """Sayfa isteğinin tetiklediği tek uçuşlu tarama."""
+    global _unified_scan_refresh_task
+    current = asyncio.current_task()
+    try:
+        await _run_unified_scan_once()
     finally:
-        _unified_scan_refresh_task = None
+        if _unified_scan_refresh_task is current:
+            _unified_scan_refresh_task = None
 
 
 def _kick_unified_scan_refresh() -> None:
-    """Tazeleme görevi yoksa/bittiyse başlat (tek uçuş garantisi)."""
+    """Tazeleme görevi yoksa/bittiyse başlat. Asılı görev yeni taramayı kilitlemesin."""
     global _unified_scan_refresh_task
     task = _unified_scan_refresh_task
     if task is not None and not task.done():
-        return
+        started = float(_unified_scan_cache.get("scan_started_at") or 0)
+        if started and time.time() - started < UNIFIED_SCAN_TIMEOUT_SEC + 15:
+            return
+        task.cancel()
     _unified_scan_refresh_task = asyncio.get_running_loop().create_task(
         _refresh_unified_scan_async())
+
+
+async def unified_scan_scheduler() -> None:
+    """90 sn'de bir tarar. Sayfa kapalı olsa da geri sayımın kaynağı bu döngüdür."""
+    await asyncio.sleep(12)
+    while True:
+        try:
+            await _run_unified_scan_once()
+        except Exception as exc:
+            logger.warning("birleşik tarama döngüsü: %s", exc)
+        generated = float(_unified_scan_cache.get("generated_at") or 0)
+        remain = UNIFIED_SCAN_INTERVAL_SEC - (time.time() - generated) if generated else 8
+        await asyncio.sleep(max(8.0, remain))
 
 
 @router.get("/api/unified-scan/history")

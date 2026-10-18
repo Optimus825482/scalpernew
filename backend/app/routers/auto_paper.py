@@ -238,6 +238,28 @@ def _trigger_source(notification: dict) -> str:
     return strategy[:40] or "unified"
 
 
+def _ribbon_timeframe_text(notification: dict) -> str | None:
+    """Kurdele kesişiminin zaman dilimleri. Diğer kaynaklarda boş kalır."""
+    if _trigger_source(notification) != "ema_ribbon":
+        return None
+    parts: list[str] = []
+    raw = notification.get("trigger_timeframe") or notification.get("ribbon_timeframe") or ""
+    if isinstance(raw, str):
+        parts.extend(part.strip() for part in raw.replace("|", ",").split(",") if part.strip())
+    events = notification.get("ribbon_events") or []
+    if isinstance(events, list):
+        for event in events:
+            if isinstance(event, dict):
+                timeframe = str(event.get("timeframe") or "").strip()
+                if timeframe:
+                    parts.append(timeframe)
+    seen: list[str] = []
+    for part in parts:
+        if part not in seen:
+            seen.append(part)
+    return ",".join(seen) or None
+
+
 async def try_open_from_notification(notification: dict) -> dict | None:
     """Bir monitoring bildirimi geldiğinde otonom paper pozisyonu aç.
 
@@ -823,6 +845,7 @@ async def _open_new_trade(symbol: str, notification: dict, current_price: float,
             "entry_time": now,
             "notification_score": notification.get("score"),
             "trigger_source": _trigger_source(notification),
+            "trigger_timeframe": _ribbon_timeframe_text(notification),
             "notification_target_pct": target_pct,
             "notification_expected_price": notification.get("expected_price"),
             "tp1_scalp_pct": float(tp1_scalp_val) if tp1_scalp_val is not None else None,
@@ -1594,18 +1617,19 @@ async def open_ribbon_candidates(candidates: list[dict]) -> int:
             continue
         from app.ema_ribbon import ribbon_bar_is_fresh
         timeframe = str(raw.get("ribbon_timeframe") or "1m")
-        fresh_hit = ribbon_bar_is_fresh(bar_ms, timeframe=timeframe)
-        if not fresh_hit:
-            for event in raw.get("ribbon_events") or []:
-                try:
-                    event_bar = int(event.get("bar_ms") or 0)
-                except (TypeError, ValueError):
-                    continue
-                event_tf = str(event.get("timeframe") or "1m")
-                if ribbon_bar_is_fresh(event_bar, timeframe=event_tf):
-                    fresh_hit = True
-                    break
-        if not fresh_hit:
+        fresh_frames: list[str] = []
+        if ribbon_bar_is_fresh(bar_ms, timeframe=timeframe):
+            fresh_frames.append(timeframe)
+        for event in raw.get("ribbon_events") or []:
+            try:
+                event_bar = int(event.get("bar_ms") or 0)
+            except (TypeError, ValueError):
+                continue
+            event_tf = str(event.get("timeframe") or "1m")
+            if event_tf in fresh_frames or not ribbon_bar_is_fresh(event_bar, timeframe=event_tf):
+                continue
+            fresh_frames.append(event_tf)
+        if not fresh_frames:
             continue
         symbol = str(raw.get("symbol") or "").upper()
         if not symbol or symbol in seen:
@@ -1633,6 +1657,7 @@ async def open_ribbon_candidates(candidates: list[dict]) -> int:
             "detected_at": time.time(),
             "strategy": "ema_ribbon",
             "sources": ["ema_ribbon"],
+            "trigger_timeframe": ",".join(fresh_frames),
         })
         if isinstance(result, dict) and result.get("status") == "opened":
             opened += 1

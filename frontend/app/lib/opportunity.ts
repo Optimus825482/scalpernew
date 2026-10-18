@@ -29,6 +29,7 @@ export type OpportunityView = {
   targetProbability: number | null;
   sources: string[];
   sourceCodes: string[];
+  ribbonTimeframes: string[];
   confirmSources: string[];
   confirmLayers: string[];
   opposingSources: string[];
@@ -52,6 +53,23 @@ function firstNum(...values: unknown[]): number | null {
 }
 function str(value: unknown): string | null {
   return typeof value === "string" && value ? value : null;
+}
+
+function ribbonTimeframesOf(raw: Record<string, unknown>): string[] {
+  const found: string[] = [];
+  const push = (value: unknown) => {
+    const text = String(value ?? "").trim().toLowerCase();
+    if (text && !found.includes(text)) found.push(text);
+  };
+  if (Array.isArray(raw.ribbon_events)) {
+    for (const event of raw.ribbon_events) {
+      if (event && typeof event === "object") push((event as { timeframe?: unknown }).timeframe);
+    }
+  }
+  push(raw.ribbon_timeframe);
+  const evidence = raw.source_evidence;
+  if (evidence && typeof evidence === "object") push((evidence as { timeframe?: unknown }).timeframe);
+  return found;
 }
 
 /** Sembol sonekini (TRY/USDT) atarak taban varlığı verir. */
@@ -96,6 +114,7 @@ export function toOpportunityView(raw: Candidate | DailyOpportunity | Record<str
     targetProbability: num(r.target_probability),
     sources: candidateSources(r),
     sourceCodes: candidateSourceCodes(r),
+    ribbonTimeframes: ribbonTimeframesOf(r),
     confirmSources: (Array.isArray(r.supporting_sources) ? r.supporting_sources : []).map(sourceLabel).filter(Boolean),
     confirmLayers: (Array.isArray(r.confirm_layers) ? r.confirm_layers : []).map(sourceLabel).filter(Boolean),
     opposingSources: (Array.isArray(r.opposing_sources) ? r.opposing_sources : Array.isArray(r.conflicting_sources) ? r.conflicting_sources : []).map(sourceLabel).filter(Boolean),

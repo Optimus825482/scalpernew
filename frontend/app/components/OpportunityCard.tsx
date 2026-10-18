@@ -192,7 +192,7 @@ function OpportunityCard({
           </div>
 
           {/* SİNYALİ ÜRETEN MOTORLAR (her motora özgü renkli rozetler) */}
-          <SourceBadges codes={item.sourceCodes} max={4} label="Motorlar" className="mt-2" />
+          <SourceBadges codes={item.sourceCodes} notes={item.ribbonTimeframes.length ? { ema_ribbon: item.ribbonTimeframes.join(",") } : undefined} max={4} label="Motorlar" className="mt-2" />
           {item.confirmSources.length > 0 && <p className="mt-1 text-[10px] text-gain">Uzlaşı: {item.confirmSources.join(" · ")}</p>}
           {item.opposingSources.length > 0 && <p className="mt-1 text-[10px] text-loss">Çelişki: {item.opposingSources.join(" · ")}</p>}
           {item.sourceEvidence.rsi7 != null && <p className="mt-1 text-[10px] text-ink-500">Snapback kanıtı: RSI7 {String(item.sourceEvidence.rsi7)} · RSI14 {String(item.sourceEvidence.rsi14)}{item.stopLoss != null ? ` · Stop ${formatPrice(item.stopLoss)} (${formatPct(-(item.stopLossPct ?? 0), 1)})` : ""}</p>}

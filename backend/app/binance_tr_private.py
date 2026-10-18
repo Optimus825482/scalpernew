@@ -1364,6 +1364,12 @@ def get_open_orders(api_key: str, api_secret: str, symbol: str = "",
         return orders
 
 
+def invalidate_open_orders_cache() -> None:
+    """Emir olayı gelince REST önbelleğini düşür. Sonraki liste taze okunur."""
+    with _open_orders_lock:
+        _open_orders_cache["expires"] = 0.0
+
+
 def get_open_orders_partial(api_key: str, api_secret: str) -> bool:
     """Son açık-emir sonucunun kısmi olup olmadığını döner (#33).
 

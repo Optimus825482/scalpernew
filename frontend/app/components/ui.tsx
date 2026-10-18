@@ -1,7 +1,7 @@
 "use client";
 
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-import { sourceLabel } from "../lib/sources";
+import { ribbonTimeframeNote, sourceLabel } from "../lib/sources";
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "success";
 
@@ -92,11 +92,13 @@ export function SourceBadges({
   codes,
   max = 4,
   label,
+  notes,
   className = "",
 }: {
   codes: string[];
   max?: number;
   label?: string;
+  notes?: Record<string, string | undefined>;
   className?: string;
 }) {
   const visible = codes.slice(0, max);
@@ -106,14 +108,17 @@ export function SourceBadges({
       {label && <span className="text-[9px] uppercase tracking-wide text-ink-400">{label}</span>}
       {visible.map((code) => {
         const badge = SOURCE_BADGES[code] ?? { label: sourceLabel(code) || code, icon: "▪", cls: SOURCE_BADGE_NEUTRAL };
+        const note = ribbonTimeframeNote(notes?.[code]);
+        const icon = code === "ema_ribbon" && note ? `BUY ${note}` : badge.icon;
+        const text = note ? `${badge.label} ${note}` : badge.label;
         return (
           <span
             key={code}
-            title={`Sinyal kaynağı: ${badge.label}`}
-            className={`inline-flex max-w-[10rem] items-center gap-1 whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-none ${badge.cls}`}
+            title={`Sinyal kaynağı: ${text}`}
+            className={`inline-flex max-w-[18rem] items-center gap-1 whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-none ${badge.cls}`}
           >
-            <span aria-hidden className="inline-flex items-center text-[9px] leading-none">{badge.icon}</span>
-            <span className="truncate">{badge.label}</span>
+            <span aria-hidden className="inline-flex items-center text-[9px] leading-none">{icon}</span>
+            <span className="truncate">{text}</span>
           </span>
         );
       })}

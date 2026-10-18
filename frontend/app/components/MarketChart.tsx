@@ -6,6 +6,7 @@ import { apiRequest } from "../lib/api";
 import { useLiveMessages, useLiveStatus } from "../lib/liveSocket";
 import { useAuth } from "../lib/auth";
 import { formatPrice } from "../lib/format";
+import { ribbonTimeframeLabel } from "../lib/sources";
 
 export type Candle = { time: number; open: number; high: number; low: number; close: number; volume: number };
 type Indicator = "volume" | "sma" | "ema" | "ema3" | "bollinger" | "rsi" | "stochrsi" | "macd" | "vwap" | "atr" | "adx";
@@ -839,7 +840,7 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
           {buyMarks.map((mark) => (
             <span key={mark.time} className="absolute flex -translate-x-1/2 flex-col items-center" style={{ left: mark.x, top: mark.y }}>
               <span className="block h-0 w-0 border-x-[7px] border-b-[7px] border-x-transparent border-b-[#089981]" />
-              <span className="-mt-px rounded-[3px] bg-[#089981] px-1.5 py-[3px] text-[10px] font-extrabold leading-none tracking-wide text-white shadow-sm">BUY</span>
+              <span className="-mt-px whitespace-nowrap rounded-[3px] bg-[#089981] px-1.5 py-[3px] text-[10px] font-extrabold leading-none tracking-wide text-white shadow-sm">BUY {ribbonTimeframeLabel(interval)}</span>
             </span>
           ))}
         </div>

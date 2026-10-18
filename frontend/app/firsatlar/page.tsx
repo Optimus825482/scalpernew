@@ -7,7 +7,7 @@ import { usePoll } from "../lib/hooks";
 import { formatPct, fmtDateTime, formatPrice } from "../lib/format";
 import { elapsedLabel, readSignal, rememberScan, touchPeak, useLivePrices } from "../lib/livePrices";
 import { baseAsset, toOpportunityView } from "../lib/opportunity";
-import { sourceLabel } from "../lib/sources";
+import { ribbonTimeframeNote, sourceLabel } from "../lib/sources";
 import { useWatchlist } from "../lib/watchlist";
 import { sound } from "../lib/sound";
 import type { ManualUnifiedScanResponse, NotificationsResponse, ScanNotification, UnifiedScanHistoryResponse, UnifiedScanRun } from "../lib/types";
@@ -294,7 +294,7 @@ function LiveFeed({
                       {view.sources.length ? (
                         view.sources.slice(0, 3).map((s) => (
                           <Badge key={s} tone="accent">
-                            {s}
+                            {s === "EMA Kurdele" && view.ribbonTimeframes.length ? `${s} ${ribbonTimeframeNote(view.ribbonTimeframes)}` : s}
                           </Badge>
                         ))
                       ) : (

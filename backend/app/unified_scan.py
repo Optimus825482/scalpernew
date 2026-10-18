@@ -139,11 +139,11 @@ def _source_ids(item: dict) -> list[str]:
     return [str(source)] if source else []
 
 
-def _merge_ribbon_candidates(out: list[dict]) -> None:
+async def _merge_ribbon_candidates(out: list[dict]) -> None:
     """1m, 5m ve 15m EMA kurdele alımını aday listesine ekler. Kayıt yazmaz."""
     try:
         from app.ema_ribbon import ribbon_candidates
-        hits = ribbon_candidates()
+        hits = await asyncio.to_thread(ribbon_candidates)
     except Exception as exc:
         logger.debug("ema kurdele taraması atlandı: %s", exc)
         return
@@ -471,7 +471,7 @@ async def combined_scan_rows() -> list[dict]:
         }
         out.append(row)
 
-    _merge_ribbon_candidates(out)
+    await _merge_ribbon_candidates(out)
 
     out.sort(key=lambda r: (float(r.get("scan_score") or 0), _is_both(r),
                             (r.get("radar") or {}).get("book_imbalance") or 0.0),

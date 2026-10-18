@@ -50,6 +50,9 @@ export type UnifiedScanRun = {
   candidate_count?: number;
   candidates: Candidate[];
   recent_candidates?: Candidate[];
+  scanning?: boolean;
+  interval_sec?: number;
+  last_error?: string | null;
 };
 
 export type UnifiedScanResponse = { run: UnifiedScanRun | null };

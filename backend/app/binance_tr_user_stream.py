@@ -280,6 +280,8 @@ def _normalize_event(message: dict[str, Any]) -> dict[str, Any] | None:
             "status": payload.get("X"),
             "reject_reason": payload.get("r"),
             "order_id": payload.get("i"),
+            "order_list_id": payload.get("g") if payload.get("g") is not None else payload.get("orderListId"),
+            "order_time_ms": payload.get("O") or payload.get("createTime"),
             "last_executed_quantity": payload.get("l"),
             "cumulative_filled_quantity": payload.get("z"),
             "cumulative_quote_quantity": payload.get("Z"),

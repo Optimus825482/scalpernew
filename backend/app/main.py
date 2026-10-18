@@ -99,7 +99,7 @@ from app.routers.runtime import (  # noqa: F401
 from app.routers.velocity import velocity_learning_loop, autonomous_velocity_loop, load_velocity_atr_profiles  # noqa: F401
 from app.routers.chart_forecast import chart_forecast_evaluation_loop  # noqa: F401
 from app.routers.monitoring import (rising_evidence_loop, daily_momentum_loop,
-                                    daily_rising_combined_loop)  # noqa: F401
+                                    daily_rising_combined_loop, unified_scan_scheduler)  # noqa: F401
 from app.combined_paper import combined_paper_management_loop  # noqa: F401
 from app.routers import monitoring  # noqa: F401
 
@@ -1113,6 +1113,8 @@ async def startup_services():
     _start_background(alert_loop, "alert-engine")
     await asyncio.sleep(_yield)
     _start_background(monitoring_start_loop, "monitoring-start")
+    await asyncio.sleep(_yield)
+    _start_background(unified_scan_scheduler, "unified-scan")
     await asyncio.sleep(_yield)
     # Yükseliş sinyali kanıt doldurma: Raporlar > YÜKSELİŞ EĞİLİMİ Sonuç sütunu
     # bu döngü olmadan sonsuza dek BEKLİYOR kalıyordu (kolonlar vardı, dolduran yok).
@@ -3142,6 +3144,9 @@ async def _decrypt_binance_creds(request) -> tuple[str, str]:
 
 async def _publish_binance_user_event(user_id: int, event: dict) -> None:
     """Özel borsa olayını yalnız ilgili kullanıcının doğrulanmış WS oturumlarına ilet."""
+    if event.get("event_type") == "executionReport":
+        from app.binance_tr_private import invalidate_open_orders_cache
+        invalidate_open_orders_cache()
     await ws_manager.broadcast({"type": "binance_user_event", "data": event}, user_id=user_id)
 
 
@@ -3788,12 +3793,16 @@ async def binance_open_orders(request: Request, symbol: str = ""):
     """Binance TR açık/bekleyen emirler listesi (oturum açmış kullanıcı)."""
     principal = _require_user(request)
     api_key, api_secret = await _decrypt_binance_creds(request)
+    user = await database.get_user_by_username(str(principal.get("username") or ""))
+    stream_status = None
+    if user:
+        stream_status = await _ensure_binance_user_stream(int(user["id"]), api_key, api_secret)
     try:
         username = str(principal.get("username") or "").strip()
         seen = await _load_seen_binance_assets(username) if username else set()
         cands = [f"{a}_TRY" for a in seen] + [f"{a}_USDT" for a in seen] if seen else None
         orders = await asyncio.to_thread(get_open_orders, api_key, api_secret, symbol, cands)
-        return {"ok": True, "orders": orders, "count": len(orders)}
+        return {"ok": True, "orders": orders, "count": len(orders), "user_stream": stream_status}
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Açık emirler alınamadı: {exc}")
 

@@ -412,6 +412,7 @@ async def init_db():
         # kok nedeni buydu. Bkz. auto_paper._manage_single_trade.
         conn.execute("ALTER TABLE auto_paper_trades ADD COLUMN IF NOT EXISTS tp_cancelled BOOLEAN DEFAULT FALSE")
         conn.execute("ALTER TABLE auto_paper_trades ADD COLUMN IF NOT EXISTS trigger_source TEXT")
+        conn.execute("ALTER TABLE auto_paper_trades ADD COLUMN IF NOT EXISTS trigger_timeframe TEXT")
         # Kaynak yazılmadan açılan otonom işlemler EMA kurdele kesişimidir.
         # Bildirimi olan satırlar (ör. MACD) kendi kaynağında kalır.
         conn.execute(
@@ -6696,14 +6697,15 @@ async def open_auto_paper_trade(trade: dict, signal: dict) -> tuple[dict | None,
                (symbol, side, status, notification_id, notification_key, entry_price, quantity, order_value_try,
                 stop_loss, take_profit, peak_price, entry_time,
                 notification_score, notification_target_pct, notification_expected_price,
-                trigger_source, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING *""",
+                trigger_source, trigger_timeframe, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING *""",
             (symbol, trade.get("side", "LONG"), "open",
              notification_id, notification_key, trade["entry_price"], trade["quantity"], order_value,
              trade.get("stop_loss"), trade.get("take_profit"),
              trade.get("peak_price", trade["entry_price"]), trade["entry_time"],
              trade.get("notification_score"), trade.get("notification_target_pct"),
              trade.get("notification_expected_price"), trade.get("trigger_source"),
+             trade.get("trigger_timeframe"),
              trade["created_at"], trade["updated_at"])
         ).fetchone()
         if signal:

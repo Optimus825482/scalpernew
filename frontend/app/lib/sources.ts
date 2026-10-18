@@ -45,6 +45,38 @@ const SOURCE_LABELS: Record<string, string> = {
   GLOBAL_LEAD_LAG: "Global Lead-Lag",
 };
 
+const RIBBON_TIMEFRAMES: Record<string, string> = {
+  "1m": "1 dk",
+  "3m": "3 dk",
+  "5m": "5 dk",
+  "15m": "15 dk",
+  "30m": "30 dk",
+  "1h": "1 sa",
+  "4h": "4 sa",
+  "1d": "1 gün",
+};
+
+/** Mum aralığını rozet metnine çevirir: 5m → 5 dk. */
+export function ribbonTimeframeLabel(code: unknown): string {
+  const key = String(code ?? "").trim().toLowerCase();
+  if (!key) return "";
+  return RIBBON_TIMEFRAMES[key] || key;
+}
+
+/** "5m,15m" veya dizi → "5 dk · 15 dk". */
+export function ribbonTimeframeNote(value: unknown): string {
+  const raw = Array.isArray(value) ? value : String(value ?? "").split(/[,|]/);
+  const seen = new Set<string>();
+  const labels: string[] = [];
+  for (const item of raw) {
+    const label = ribbonTimeframeLabel(item);
+    if (!label || seen.has(label)) continue;
+    seen.add(label);
+    labels.push(label);
+  }
+  return labels.join(" · ");
+}
+
 /** Tek bir kaynak kodunu okunur etikete çevirir. */
 export function sourceLabel(code: unknown): string {
   const key = String(code ?? "").trim().toLowerCase();
