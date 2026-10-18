@@ -413,6 +413,11 @@ async def init_db():
         conn.execute("ALTER TABLE auto_paper_trades ADD COLUMN IF NOT EXISTS tp_cancelled BOOLEAN DEFAULT FALSE")
         conn.execute("ALTER TABLE auto_paper_trades ADD COLUMN IF NOT EXISTS trigger_source TEXT")
         conn.execute("ALTER TABLE auto_paper_trades ADD COLUMN IF NOT EXISTS trigger_timeframe TEXT")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_auto_paper_notification_id ON auto_paper_trades(notification_id)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_monitoring_mode_symbol_detected "
+            "ON monitoring_notifications(mode, symbol, detected_at DESC)"
+        )
         # Kaynak yazılmadan açılan otonom işlemler EMA kurdele kesişimidir.
         # Bildirimi olan satırlar (ör. MACD) kendi kaynağında kalır.
         conn.execute(
@@ -423,6 +428,7 @@ async def init_db():
                    SELECT 1 FROM monitoring_notifications AS n WHERE n.id = t.notification_id
                  )"""
         )
+        _backfill_ribbon_timeframes(conn)
         # D-06 (2026-09-14): MFE ulasilamaz bir TEPE. `exit_pct` ufuk sonundaki
         # kapanis (gerceklestirilebilir), `net_pct` gidis/donus maliyeti dusulmus hali.
         conn.execute("ALTER TABLE velocity_candidates ADD COLUMN IF NOT EXISTS exit_pct DOUBLE PRECISION")
@@ -5489,28 +5495,61 @@ async def get_monitoring_notifications_by_ids(notification_ids: list[int]) -> di
     return await _run_db(op)
 
 
-async def list_ribbon_notifications_for_symbols(symbols: list[str], limit: int = 400) -> list[dict]:
-    """Kurdele bildirimlerinden zaman dilimini paper satırına bağlamak için."""
-    clean = []
-    for raw in symbols or []:
-        symbol = str(raw or "").upper()
-        if symbol and symbol not in clean:
-            clean.append(symbol)
-    if not clean:
-        return []
-    cap = max(1, min(int(limit), 1000))
-
-    def op(conn):
-        marks = ",".join(["?"] * len(clean))
-        rows = conn.execute(
-            "SELECT symbol, message, candidate_id, detected_at "
-            f"FROM monitoring_notifications WHERE mode='ema_ribbon' AND symbol IN ({marks}) "
-            "ORDER BY detected_at DESC LIMIT ?",
-            tuple(clean) + (cap,),
-        ).fetchall()
-        return [dict(row) for row in rows]
-
-    return await _run_db(op)
+def _backfill_ribbon_timeframes(conn) -> None:
+    """Boş zaman dilimini bir kez bildirime bağlar. Sayfa isteğinde tablo taranmaz."""
+    pending = conn.execute(
+        "SELECT 1 FROM auto_paper_trades "
+        "WHERE COALESCE(trigger_timeframe, '') = '' "
+        "AND trigger_source = 'ema_ribbon' LIMIT 1"
+    ).fetchone()
+    if not pending:
+        return
+    conn.execute(
+        r"""UPDATE auto_paper_trades AS t
+            SET trigger_timeframe = m.tf
+            FROM (
+              SELECT t2.id,
+                     COALESCE(
+                       (regexp_match(COALESCE(n.candidate_id, ''), 'ema-ribbon-[A-Z0-9]+-([0-9]+[mhd])-'))[1],
+                       (regexp_match(COALESCE(n.message, ''), '\(([0-9]+[mhd])\)'))[1]
+                     ) AS tf
+              FROM auto_paper_trades t2
+              JOIN monitoring_notifications n ON n.id = t2.notification_id
+              WHERE COALESCE(t2.trigger_timeframe, '') = ''
+                AND t2.trigger_source = 'ema_ribbon'
+            ) AS m
+            WHERE t.id = m.id AND m.tf IS NOT NULL"""
+    )
+    flagged = conn.execute(
+        "SELECT value FROM llm_settings WHERE key='ribbon_tf_symbol_backfill'"
+    ).fetchone()
+    if flagged:
+        return
+    conn.execute(
+        r"""UPDATE auto_paper_trades AS t
+            SET trigger_timeframe = m.tf
+            FROM (
+              SELECT DISTINCT ON (t2.id)
+                     t2.id,
+                     COALESCE(
+                       (regexp_match(COALESCE(n.candidate_id, ''), 'ema-ribbon-[A-Z0-9]+-([0-9]+[mhd])-'))[1],
+                       (regexp_match(COALESCE(n.message, ''), '\(([0-9]+[mhd])\)'))[1]
+                     ) AS tf
+              FROM auto_paper_trades t2
+              JOIN monitoring_notifications n
+                ON n.mode = 'ema_ribbon'
+               AND n.symbol = t2.symbol
+               AND n.detected_at BETWEEN t2.entry_time - 1800 AND t2.entry_time + 120
+              WHERE COALESCE(t2.trigger_timeframe, '') = ''
+                AND t2.trigger_source = 'ema_ribbon'
+              ORDER BY t2.id, abs(n.detected_at - t2.entry_time)
+            ) AS m
+            WHERE t.id = m.id AND m.tf IS NOT NULL"""
+    )
+    conn.execute(
+        "INSERT INTO llm_settings(key,value) VALUES('ribbon_tf_symbol_backfill','1') "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+    )
 
 
 async def get_monitoring_notification_by_id(notification_id: int) -> dict | None:

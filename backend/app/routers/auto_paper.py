@@ -1929,15 +1929,24 @@ async def list_trades_endpoint(
         status=status or None, limit=limit, offset=offset, day=day,
         include_archived=include_archived, apply_reports_baseline=not _only_open
     )
-    # Açık pozisyonlar için güncel ticker fiyatını ekle (frontend PnL hesabı için)
-    notif_ids = [int(t["notification_id"]) for t in trades if t.get("notification_id")]
+    # Bildirim yalnız eksik kaynağı veya açık fiyatı tamamlamak için okunur.
+    # Kurdele zamanı açılışta bir kez yazılır; her sayfa isteğinde tablo taranmaz.
+    notif_ids = []
+    for t in trades:
+        if not t.get("notification_id"):
+            continue
+        needs_source = not t.get("trigger_source") or (
+            str(t.get("trigger_source") or "") == "ema_ribbon" and not t.get("trigger_timeframe")
+        )
+        if t.get("status") == "open" or needs_source:
+            notif_ids.append(int(t["notification_id"]))
     notifs = await database.get_monitoring_notifications_by_ids(notif_ids) if notif_ids else {}
     for t in trades:
+        nid = t.get("notification_id")
+        notif = notifs.get(int(nid)) if nid else None
         if t.get("status") == "open":
             ticker = market.get_ticker(str(t.get("symbol") or "").upper())
             t["current_price"] = float(ticker.get("last_price") or 0) if ticker else None
-            nid = t.get("notification_id")
-            notif = notifs.get(int(nid)) if nid else None
             if notif:
                 t["notification_price"] = float(notif.get("price") or 0)
                 if not t.get("notification_expected_price"):
@@ -1949,20 +1958,8 @@ async def list_trades_endpoint(
             else:
                 t["notification_price"] = float(t.get("entry_price") or 0)
         if not t.get("trigger_source"):
-            nid = t.get("notification_id")
-            notif = notifs.get(int(nid)) if nid else None
             t["trigger_source"] = _trigger_source(notif) if notif else "ema_ribbon"
-    missing_tf = [
-        t for t in trades
-        if str(t.get("trigger_source") or "") == "ema_ribbon" and not t.get("trigger_timeframe")
-    ]
-    hints = await database.list_ribbon_notifications_for_symbols(
-        [str(t.get("symbol") or "") for t in missing_tf]
-    ) if missing_tf else []
-    for t in trades:
-        nid = t.get("notification_id")
-        notif = notifs.get(int(nid)) if nid else None
-        _attach_ribbon_timeframe(t, notif, hints)
+        _attach_ribbon_timeframe(t, notif, [])
     reset_at = await database.get_reset_cutoff()
     return {
         "paper_only": True,
