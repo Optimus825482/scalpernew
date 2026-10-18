@@ -103,7 +103,22 @@ function ema(values: number[], period: number): Array<number | null> {
   return output;
 }
 
-function ribbonBuyIndexes(candles: Candle[], fast: Array<number | null>, mid: Array<number | null>, slow: Array<number | null>): number[] {
+const PEGGED_BASES = new Set(["USDT", "USDC", "FDUSD", "TUSD", "BUSD", "DAI", "USDP", "EUR", "PAXG", "XAUT", "PAX", "USD1", "RLUSD"]);
+const RIBBON_FLAT_LOOKBACK = 20;
+const RIBBON_MIN_RANGE_PCT = 0.8;
+const RIBBON_MIN_SPAN_PCT = 0.4;
+const RIBBON_DEAD_STICK_PCT = 0.08;
+const RIBBON_DEAD_STICK_RATIO = 0.7;
+
+function ribbonBase(symbol: string) {
+  const name = symbol.toUpperCase();
+  if (name.endsWith("TRY")) return name.slice(0, -3);
+  if (name.endsWith("USDT")) return name.slice(0, -4);
+  return name;
+}
+
+function ribbonBuyIndexes(symbol: string, candles: Candle[], fast: Array<number | null>, mid: Array<number | null>, slow: Array<number | null>): number[] {
+  if (PEGGED_BASES.has(ribbonBase(symbol))) return [];
   const hits: number[] = [];
   const lastClosed = candles.length - 1;
   for (let index = 1; index < lastClosed; index += 1) {
@@ -113,7 +128,31 @@ function ribbonBuyIndexes(candles: Candle[], fast: Array<number | null>, mid: Ar
     const currMid = mid[index];
     const currSlow = slow[index];
     if (prevFast == null || prevMid == null || currFast == null || currMid == null || currSlow == null) continue;
-    if (prevFast <= prevMid && currFast > currMid && currFast > currSlow && currMid > currSlow) hits.push(index);
+    if (!(prevFast <= prevMid && currFast > currMid && currFast > currSlow && currMid > currSlow)) continue;
+    const price = candles[index]?.close ?? 0;
+    if (!(price > 0)) continue;
+    const span = (Math.max(currFast, currMid, currSlow) - Math.min(currFast, currMid, currSlow)) / price * 100;
+    if (span < RIBBON_MIN_SPAN_PCT) continue;
+    const start = Math.max(0, index - RIBBON_FLAT_LOOKBACK + 1);
+    let high = candles[start].high;
+    let low = candles[start].low;
+    for (let cursor = start + 1; cursor <= index; cursor += 1) {
+      if (candles[cursor].high > high) high = candles[cursor].high;
+      if (candles[cursor].low < low) low = candles[cursor].low;
+    }
+    if (!(low > 0) || ((high - low) / low) * 100 < RIBBON_MIN_RANGE_PCT) continue;
+    let dead = 0;
+    let counted = 0;
+    for (let cursor = start; cursor <= index; cursor += 1) {
+      const candle = candles[cursor];
+      const mark = candle.close > 0 ? candle.close : candle.open;
+      if (!(mark > 0)) continue;
+      counted += 1;
+      const stick = Math.max(Math.abs(candle.close - candle.open), candle.high - candle.low);
+      if ((stick / mark) * 100 < RIBBON_DEAD_STICK_PCT) dead += 1;
+    }
+    if (counted < 8 || dead / counted >= RIBBON_DEAD_STICK_RATIO) continue;
+    hits.push(index);
   }
   return hits;
 }
@@ -659,7 +698,7 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
       return;
     }
     const place = () => {
-      const hits = ribbonBuyIndexes(candles, values.ema7, values.ema20, values.ema99);
+      const hits = ribbonBuyIndexes(symbol, candles, values.ema7, values.ema20, values.ema99);
       const next: Array<{ time: number; x: number; y: number }> = [];
       for (const index of hits) {
         const candle = candles[index];
@@ -675,7 +714,7 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
     const scale = chart.timeScale();
     scale.subscribeVisibleLogicalRangeChange(place);
     return () => scale.unsubscribeVisibleLogicalRangeChange(place);
-  }, [candles, config.enabled, isFullscreen, ready, values]);
+  }, [candles, config.enabled, isFullscreen, ready, symbol, values]);
 
   const filteredSymbols = useMemo(() => {
     const query = normalizeSymbol(search);
