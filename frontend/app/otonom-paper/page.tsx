@@ -6,8 +6,7 @@ import { usePoll } from "../lib/hooks";
 import { livePrice, useSymbolPrices } from "../lib/livePrices";
 import { useAuth } from "../lib/auth";
 import { fmtDateTime, formatPrice, formatSignedTL, formatTL } from "../lib/format";
-import { sourceLabel } from "../lib/sources";
-import { Badge, Card, EmptyState, SectionHeader, Skeleton } from "../components/ui";
+import { Badge, Card, EmptyState, SectionHeader, Skeleton, SourceBadges } from "../components/ui";
 
 type PaperTrade = {
   id: number;
@@ -145,7 +144,7 @@ export default function OtonomPaperPage() {
               <tbody>
                 {stats?.by_source?.map((row) => (
                   <tr key={row.source} className="border-t border-line">
-                    <td className="py-2 pr-3 font-medium text-ink-800">{sourceLabel(row.source) || row.source}</td>
+                    <td className="py-2 pr-3"><SourceBadges codes={[row.source]} /></td>
                     <td className="py-2 pr-3 text-right font-mono">{row.closed}</td>
                     <td className="py-2 pr-3 text-right font-mono">{row.winning}</td>
                     <td className={`py-2 pr-3 text-right font-mono ${row.win_rate >= 50 ? "text-gain" : "text-ink-700"}`}>%{row.win_rate.toFixed(1)}</td>
@@ -214,7 +213,7 @@ function TradeTable({ rows, onClose }: { rows: PaperTrade[]; onClose?: (trade: P
                 <td className="py-2 pr-3 font-mono font-semibold text-ink-900">
                   <AppLink href={`/grafik?symbol=${encodeURIComponent(trade.symbol)}&interval=5m`} className="hover:text-accent" title={`${trade.symbol} grafiğini aç`}>{trade.symbol}</AppLink>
                 </td>
-                <td className="py-2 pr-3 text-xs text-ink-600">{sourceLabel(trade.trigger_source) || "Kaynak yok"}</td>
+                <td className="py-2 pr-3">{trade.trigger_source ? <SourceBadges codes={[trade.trigger_source]} /> : <Badge tone="neutral">Kaynak yok</Badge>}</td>
                 <td className="py-2 pr-3 font-mono text-xs text-ink-500">{fmtDateTime(trade.exit_time || trade.entry_time)}</td>
                 <td className="py-2 pr-3 text-right font-mono">{formatPrice(trade.entry_price)}</td>
                 <td className="py-2 pr-3 text-right font-mono">{formatPrice(mark)}</td>

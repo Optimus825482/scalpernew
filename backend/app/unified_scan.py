@@ -140,7 +140,7 @@ def _source_ids(item: dict) -> list[str]:
 
 
 def _merge_ribbon_candidates(out: list[dict]) -> None:
-    """Kapanmış 1m EMA kurdele alımını aday listesine ekler. Kayıt yazmaz."""
+    """1m, 5m ve 15m EMA kurdele alımını aday listesine ekler. Kayıt yazmaz."""
     try:
         from app.ema_ribbon import ribbon_candidates
         hits = ribbon_candidates()
@@ -161,6 +161,8 @@ def _merge_ribbon_candidates(out: list[dict]) -> None:
         current["scan_score"] = max(float(current.get("scan_score") or 0), float(hit.get("scan_score") or 0))
         current["quality_score"] = current["scan_score"]
         current["ribbon_bar_ms"] = hit.get("ribbon_bar_ms")
+        current["ribbon_timeframe"] = hit.get("ribbon_timeframe")
+        current["ribbon_events"] = hit.get("ribbon_events") or current.get("ribbon_events")
         if not current.get("target_pct"):
             current["target_pct"] = hit.get("target_pct")
 

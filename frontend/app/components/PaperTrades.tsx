@@ -6,8 +6,7 @@ import { usePoll } from "../lib/hooks";
 import { livePrice, useSymbolPrices } from "../lib/livePrices";
 import { useAuth } from "../lib/auth";
 import { fmtDateTime, formatPrice, formatSignedTL } from "../lib/format";
-import { sourceLabel } from "../lib/sources";
-import { Badge, Card, EmptyState, SectionHeader, Skeleton } from "./ui";
+import { Badge, Card, EmptyState, SectionHeader, Skeleton, SourceBadges } from "./ui";
 
 type PaperTrade = {
   id: number;
@@ -113,8 +112,8 @@ export default function PaperTrades() {
                   <tr key={trade.id} className="border-t border-line">
                     <td className="py-2 pr-3 font-mono font-semibold text-ink-900">
                       <AppLink href={chartHref(trade.symbol)} className="hover:text-accent" title={`${trade.symbol} grafiğini aç`}>{trade.symbol}</AppLink>
-                      <p className="mt-0.5 flex flex-wrap items-center gap-1">
-                        <span className="text-[10px] font-sans font-medium text-ink-400">{sourceLabel(trade.trigger_source) || "Kaynak yok"}</span>
+                      <p className="mt-1 flex flex-wrap items-center gap-1">
+                        {trade.trigger_source ? <SourceBadges codes={[trade.trigger_source]} /> : <Badge tone="neutral">Kaynak yok</Badge>}
                         {trade.trailing_activated ? <Badge tone="warn">Trailing</Badge> : null}
                       </p>
                     </td>
@@ -145,7 +144,7 @@ export default function PaperTrades() {
               return (
                 <li key={trade.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-line py-1.5">
                   <AppLink href={chartHref(trade.symbol)} className="font-mono font-semibold text-ink-800 hover:text-accent" title={`${trade.symbol} grafiğini aç`}>{trade.symbol}</AppLink>
-                  <span className="text-ink-400">{sourceLabel(trade.trigger_source) || "Kaynak yok"}</span>
+                  {trade.trigger_source ? <SourceBadges codes={[trade.trigger_source]} /> : <Badge tone="neutral">Kaynak yok</Badge>}
                   <Badge tone="neutral">{trade.exit_reason || "kapandı"}</Badge>
                   <span className={`font-mono ${tone}`}>{pnlLabel(pnl)}</span>
                   <span className="font-mono text-ink-400">{fmtDateTime(trade.exit_time || trade.entry_time)}</span>

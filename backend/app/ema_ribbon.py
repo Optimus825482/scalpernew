@@ -1,7 +1,8 @@
 """EMA 7/20/99 kurdele alımı.
 
 Turuncu EMA 7, mavi EMA 20'yi yukarı keser ve ikisi de siyah EMA 99'un
-üstündedir. Ölçüm kapanmış 1 dakikalık mumdadır; oluşan mum sayılmaz.
+üstündedir. Fiyatı hareket eden coinlerde kapanmış 1, 5 ve 15 dakikalık
+mumlarda aranır. Stochastic RSI 80 sınırı 1 dakikada uygulanmaz.
 Grafikteki EMA ile aynı tohum kullanılır: ilk değer periyotluk SMA.
 """
 from __future__ import annotations
@@ -13,7 +14,8 @@ from app.config import config
 
 logger = logging.getLogger("scalper.ema_ribbon")
 
-RIBBON_TIMEFRAME = "1m"
+RIBBON_TIMEFRAMES = ("1m", "5m", "15m")
+_TF_MS = {"1m": 60_000, "5m": 300_000, "15m": 900_000}
 RIBBON_FAST = 7
 RIBBON_MID = 20
 RIBBON_SLOW = 99
@@ -207,8 +209,12 @@ def select_recent_cross(
     highs: list[float] | None = None,
     lows: list[float] | None = None,
     opens: list[float] | None = None,
+    apply_stoch: bool = True,
 ) -> int | None:
-    """Penceredeki en yeni hareketli kurdele alımı. Durağan kesişim yok sayılır."""
+    """Penceredeki en yeni hareketli kurdele alımı. Durağan kesişim yok sayılır.
+
+    Stochastic RSI 80 sınırı 1 dakikada kapalıdır (`apply_stoch=False`).
+    """
     if len(closes) < 2 or len(stamps) != len(closes):
         return None
     fast = ema_series(closes, RIBBON_FAST)
@@ -221,7 +227,7 @@ def select_recent_cross(
             break
         if not ribbon_buy_at(fast, mid, slow, index):
             continue
-        if stoch_rsi_too_high(k_line[index] if index < len(k_line) else None):
+        if apply_stoch and stoch_rsi_too_high(k_line[index] if index < len(k_line) else None):
             continue
         curr_fast = fast[index]
         curr_mid = mid[index]
@@ -239,12 +245,19 @@ def select_recent_cross(
     return None
 
 
-def ribbon_bar_is_fresh(bar_ms: int, now: float | None = None, max_age_sec: float = RIBBON_TRADE_MAX_AGE_SEC) -> bool:
-    """Yeni kapanmış 1 dk mumu. Eski kesişim paper veya bildirim açmaz."""
+def ribbon_bar_is_fresh(
+    bar_ms: int,
+    now: float | None = None,
+    max_age_sec: float = RIBBON_TRADE_MAX_AGE_SEC,
+    timeframe: str = "1m",
+) -> bool:
+    """Mum yeni kapandıysa True. Süre kapanıştan ölçülür, açılıştan değil."""
     if bar_ms <= 0:
         return False
     moment = time.time() if now is None else float(now)
-    return (moment - (bar_ms / 1000.0)) <= float(max_age_sec)
+    close_at = (bar_ms / 1000.0) + (_TF_MS.get(timeframe, 60_000) / 1000.0)
+    age = moment - close_at
+    return -5.0 <= age <= float(max_age_sec)
 
 
 def closed_ribbon_buy(closes: list[float]) -> bool:
@@ -264,8 +277,66 @@ def net_target_pct() -> float:
     return round(floor, 3)
 
 
+def _scan_timeframe(symbol: str, history: dict, timeframe: str, now_ms: int, target: float) -> dict | None:
+    closes_raw = list(history.get("closes") or [])
+    opens_raw = list(history.get("opens") or [])
+    highs_raw = list(history.get("highs") or [])
+    lows_raw = list(history.get("lows") or [])
+    stamps = list(history.get("timestamps") or [])
+    if len(closes_raw) < RIBBON_SLOW + 1 or len(stamps) != len(closes_raw):
+        return None
+    try:
+        closes = [float(value) for value in closes_raw]
+        stamp_ms = [int(value) for value in stamps]
+        opens = [float(value) for value in opens_raw] if len(opens_raw) == len(closes_raw) else closes
+        highs = [float(value) for value in highs_raw] if len(highs_raw) == len(closes_raw) else closes
+        lows = [float(value) for value in lows_raw] if len(lows_raw) == len(closes_raw) else closes
+    except (TypeError, ValueError):
+        return None
+    window_ms = max(RIBBON_LIST_WINDOW_MS, _TF_MS.get(timeframe, 60_000) * 2)
+    index = select_recent_cross(
+        closes, stamp_ms, now_ms, window_ms=window_ms,
+        highs=highs, lows=lows, opens=opens,
+        apply_stoch=timeframe != "1m",
+    )
+    if index is None:
+        return None
+    price = closes[index]
+    bar_ms = stamp_ms[index]
+    if price <= 0 or bar_ms <= 0:
+        return None
+    return {
+        "symbol": symbol,
+        "price": price,
+        "target_pct": target,
+        "horizon_minutes": RIBBON_HORIZON_MINUTES,
+        "ceiling_pct": target,
+        "ceiling_price": round(price * (1 + target / 100.0), 8),
+        "potential_pct": target,
+        "potential_price": round(price * (1 + target / 100.0), 8),
+        "scan_score": RIBBON_SCORE,
+        "quality_score": RIBBON_SCORE,
+        "panel_score": RIBBON_SCORE,
+        "signal_sources": ["ema_ribbon"],
+        "unified_sources": ["ema_ribbon"],
+        "supporting_sources": [],
+        "opposing_sources": [],
+        "source_evidence": {
+            "timeframe": timeframe,
+            "ema_fast": RIBBON_FAST,
+            "ema_mid": RIBBON_MID,
+            "ema_slow": RIBBON_SLOW,
+        },
+        "strategy": "ema_ribbon",
+        "ribbon_timeframe": timeframe,
+        "ribbon_bar_ms": bar_ms,
+        "detected_at": (bar_ms + _TF_MS.get(timeframe, 60_000)) / 1000.0,
+        "_hit": False,
+    }
+
+
 def ribbon_candidates() -> list[dict]:
-    """Aktif evrendeki son 15 dk içindeki kapanmış 1m kurdele alımları. Yazma yapmaz."""
+    """Hareketli coinlerde 1m, 5m ve 15m kurdele alımları. Yazma yapmaz."""
     from app.state import market
 
     target = net_target_pct()
@@ -275,58 +346,20 @@ def ribbon_candidates() -> list[dict]:
     for symbol in symbols:
         if is_pegged_symbol(symbol):
             continue
-        history = (market.klines.get(RIBBON_TIMEFRAME, {}).get(symbol) or {})
-        closes_raw = list(history.get("closes") or [])
-        opens_raw = list(history.get("opens") or [])
-        highs_raw = list(history.get("highs") or [])
-        lows_raw = list(history.get("lows") or [])
-        stamps = list(history.get("timestamps") or [])
-        if len(closes_raw) < RIBBON_SLOW + 1 or len(stamps) != len(closes_raw):
+        events = []
+        best = None
+        for timeframe in RIBBON_TIMEFRAMES:
+            history = (market.klines.get(timeframe, {}).get(symbol) or {})
+            hit = _scan_timeframe(symbol, history, timeframe, now_ms, target)
+            if hit is None:
+                continue
+            events.append({"bar_ms": hit["ribbon_bar_ms"], "timeframe": timeframe})
+            best = hit
+        if best is None:
             continue
-        try:
-            closes = [float(value) for value in closes_raw]
-            stamp_ms = [int(value) for value in stamps]
-            opens = [float(value) for value in opens_raw] if len(opens_raw) == len(closes_raw) else closes
-            highs = [float(value) for value in highs_raw] if len(highs_raw) == len(closes_raw) else closes
-            lows = [float(value) for value in lows_raw] if len(lows_raw) == len(closes_raw) else closes
-        except (TypeError, ValueError):
-            continue
-        index = select_recent_cross(closes, stamp_ms, now_ms, highs=highs, lows=lows, opens=opens)
-        if index is None:
-            continue
-        price = closes[index]
-        if price <= 0:
-            continue
-        bar_ms = stamp_ms[index]
-        if bar_ms <= 0:
-            continue
-        rows.append({
-            "symbol": symbol,
-            "price": price,
-            "target_pct": target,
-            "horizon_minutes": RIBBON_HORIZON_MINUTES,
-            "ceiling_pct": target,
-            "ceiling_price": round(price * (1 + target / 100.0), 8),
-            "potential_pct": target,
-            "potential_price": round(price * (1 + target / 100.0), 8),
-            "scan_score": RIBBON_SCORE,
-            "quality_score": RIBBON_SCORE,
-            "panel_score": RIBBON_SCORE,
-            "signal_sources": ["ema_ribbon"],
-            "unified_sources": ["ema_ribbon"],
-            "supporting_sources": [],
-            "opposing_sources": [],
-            "source_evidence": {
-                "timeframe": RIBBON_TIMEFRAME,
-                "ema_fast": RIBBON_FAST,
-                "ema_mid": RIBBON_MID,
-                "ema_slow": RIBBON_SLOW,
-            },
-            "strategy": "ema_ribbon",
-            "ribbon_bar_ms": bar_ms,
-            "detected_at": bar_ms / 1000.0,
-            "_hit": False,
-        })
+        best["ribbon_events"] = events
+        rows.append(best)
     if rows:
-        logger.info("ema kurdele alımı: %s", ", ".join(row["symbol"] for row in rows))
+        logger.info("ema kurdele alımı: %s", ", ".join(
+            f"{row['symbol']}({row.get('ribbon_timeframe')})" for row in rows))
     return rows

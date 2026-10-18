@@ -1593,7 +1593,19 @@ async def open_ribbon_candidates(candidates: list[dict]) -> int:
         if bar_ms <= 0:
             continue
         from app.ema_ribbon import ribbon_bar_is_fresh
-        if not ribbon_bar_is_fresh(bar_ms):
+        timeframe = str(raw.get("ribbon_timeframe") or "1m")
+        fresh_hit = ribbon_bar_is_fresh(bar_ms, timeframe=timeframe)
+        if not fresh_hit:
+            for event in raw.get("ribbon_events") or []:
+                try:
+                    event_bar = int(event.get("bar_ms") or 0)
+                except (TypeError, ValueError):
+                    continue
+                event_tf = str(event.get("timeframe") or "1m")
+                if ribbon_bar_is_fresh(event_bar, timeframe=event_tf):
+                    fresh_hit = True
+                    break
+        if not fresh_hit:
             continue
         symbol = str(raw.get("symbol") or "").upper()
         if not symbol or symbol in seen:

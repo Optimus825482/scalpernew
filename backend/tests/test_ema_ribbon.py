@@ -72,6 +72,19 @@ class EmaRibbonTests(unittest.TestCase):
         with mock.patch("app.ema_ribbon.ema_series", side_effect=[fast, mid, slow]):
             self.assertIsNone(select_recent_cross(closes, stamps, now_ms=3_500, window_ms=5_000))
 
+    def test_m1_ignores_stoch_rsi_ceiling(self):
+        closes = [1.0, 1.0, 1.0]
+        stamps = [1_000, 2_000, 3_000]
+        fast = [1.0, 1.0, 2.0]
+        mid = [1.0, 2.0, 1.0]
+        slow = [0.0, 0.0, 0.0]
+        with mock.patch("app.ema_ribbon.ema_series", side_effect=[fast, mid, slow]), \
+             mock.patch("app.ema_ribbon.stoch_rsi_k", return_value=[None, None, 91.0]):
+            self.assertEqual(
+                select_recent_cross(closes, stamps, now_ms=3_500, window_ms=5_000, apply_stoch=False),
+                2,
+            )
+
     def test_stoch_rsi_above_80_blocks_buy(self):
         self.assertTrue(stoch_rsi_too_high(80.1))
         self.assertFalse(stoch_rsi_too_high(80.0))

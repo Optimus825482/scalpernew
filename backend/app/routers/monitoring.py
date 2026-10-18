@@ -4350,25 +4350,42 @@ async def _persist_ribbon_notifications(candidates: list) -> None:
             bar_ms = int(row.get("ribbon_bar_ms") or 0)
         except (TypeError, ValueError):
             bar_ms = 0
-        if bar_ms <= 0:
+        if bar_ms <= 0 and not row.get("ribbon_events"):
             continue
         from app.ema_ribbon import ribbon_bar_is_fresh
-        if not ribbon_bar_is_fresh(bar_ms):
-            continue
         symbol = str(row.get("symbol") or "").upper()
-        if not symbol or _ribbon_notified.get(symbol) == bar_ms:
+        if not symbol:
             continue
-        _ribbon_notified[symbol] = bar_ms
+        events = row.get("ribbon_events") or [{
+            "bar_ms": bar_ms,
+            "timeframe": row.get("ribbon_timeframe") or "1m",
+        }]
+        fresh_events = []
+        for event in events:
+            try:
+                event_bar = int(event.get("bar_ms") or 0)
+            except (TypeError, ValueError):
+                continue
+            event_tf = str(event.get("timeframe") or "1m")
+            if event_bar <= 0 or not ribbon_bar_is_fresh(event_bar, timeframe=event_tf):
+                continue
+            if _ribbon_notified.get(f"{symbol}:{event_tf}") == event_bar:
+                continue
+            _ribbon_notified[f"{symbol}:{event_tf}"] = event_bar
+            fresh_events.append((event_bar, event_tf))
+        if not fresh_events:
+            continue
         try:
             price = float(row.get("price") or 0)
             target = float(row.get("target_pct") or 0)
             score = float(row.get("scan_score") or 75)
         except (TypeError, ValueError):
             continue
-        fresh.append({
+        for bar_ms, event_tf in fresh_events:
+            fresh.append({
             "symbol": symbol,
             "title": "EMA Kurdele AL",
-            "message": "EMA 7, EMA 20'yi EMA 99 üzerinde yukarı kesti",
+            "message": f"EMA 7, EMA 20'yi EMA 99 üzerinde yukarı kesti ({event_tf})",
             "score": score,
             "target_pct": target,
             "price": price,
@@ -4377,7 +4394,7 @@ async def _persist_ribbon_notifications(candidates: list) -> None:
             "mode": "ema_ribbon",
             "detected_at": bar_ms / 1000.0,
             "sources": ["ema_ribbon"],
-            "candidate_id": f"ema-ribbon-{symbol}-{bar_ms}",
+            "candidate_id": f"ema-ribbon-{symbol}-{event_tf}-{bar_ms}",
         })
     if not fresh:
         return
