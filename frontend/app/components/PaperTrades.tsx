@@ -26,6 +26,7 @@ type PaperTrade = {
   notification_score?: number | null;
   exit_reason?: string | null;
   trigger_source?: string | null;
+  trailing_activated?: boolean | null;
 };
 
 type PaperList = { trades?: PaperTrade[]; paper_only?: boolean };
@@ -112,7 +113,10 @@ export default function PaperTrades() {
                   <tr key={trade.id} className="border-t border-line">
                     <td className="py-2 pr-3 font-mono font-semibold text-ink-900">
                       <AppLink href={chartHref(trade.symbol)} className="hover:text-accent" title={`${trade.symbol} grafiğini aç`}>{trade.symbol}</AppLink>
-                      <p className="text-[10px] font-sans font-medium text-ink-400">{sourceLabel(trade.trigger_source) || "Kaynak yok"}</p>
+                      <p className="mt-0.5 flex flex-wrap items-center gap-1">
+                        <span className="text-[10px] font-sans font-medium text-ink-400">{sourceLabel(trade.trigger_source) || "Kaynak yok"}</span>
+                        {trade.trailing_activated ? <Badge tone="warn">Trailing</Badge> : null}
+                      </p>
                     </td>
                     <td className="py-2 pr-3 font-mono text-xs text-ink-500">{fmtDateTime(trade.entry_time)}</td>
                     <td className="py-2 pr-3 text-right font-mono">{formatPrice(trade.entry_price)}</td>

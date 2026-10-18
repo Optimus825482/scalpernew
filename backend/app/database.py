@@ -412,6 +412,16 @@ async def init_db():
         # kok nedeni buydu. Bkz. auto_paper._manage_single_trade.
         conn.execute("ALTER TABLE auto_paper_trades ADD COLUMN IF NOT EXISTS tp_cancelled BOOLEAN DEFAULT FALSE")
         conn.execute("ALTER TABLE auto_paper_trades ADD COLUMN IF NOT EXISTS trigger_source TEXT")
+        # Kaynak yazılmadan açılan otonom işlemler EMA kurdele kesişimidir.
+        # Bildirimi olan satırlar (ör. MACD) kendi kaynağında kalır.
+        conn.execute(
+            """UPDATE auto_paper_trades AS t
+               SET trigger_source='ema_ribbon'
+               WHERE COALESCE(t.trigger_source, '') = ''
+                 AND NOT EXISTS (
+                   SELECT 1 FROM monitoring_notifications AS n WHERE n.id = t.notification_id
+                 )"""
+        )
         # D-06 (2026-09-14): MFE ulasilamaz bir TEPE. `exit_pct` ufuk sonundaki
         # kapanis (gerceklestirilebilir), `net_pct` gidis/donus maliyeti dusulmus hali.
         conn.execute("ALTER TABLE velocity_candidates ADD COLUMN IF NOT EXISTS exit_pct DOUBLE PRECISION")

@@ -1861,7 +1861,7 @@ async def list_trades_endpoint(
         if not t.get("trigger_source"):
             nid = t.get("notification_id")
             notif = notifs.get(int(nid)) if nid else None
-            t["trigger_source"] = _trigger_source(notif) if notif else "bilinmiyor"
+            t["trigger_source"] = _trigger_source(notif) if notif else "ema_ribbon"
     reset_at = await database.get_reset_cutoff()
     return {
         "paper_only": True,

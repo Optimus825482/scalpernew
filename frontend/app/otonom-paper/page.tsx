@@ -26,6 +26,7 @@ type PaperTrade = {
   pnl_pct?: number | null;
   exit_reason?: string | null;
   trigger_source?: string | null;
+  trailing_activated?: boolean | null;
 };
 
 type PaperList = { trades?: PaperTrade[] };
@@ -219,7 +220,12 @@ function TradeTable({ rows, onClose }: { rows: PaperTrade[]; onClose?: (trade: P
                 <td className="py-2 pr-3 text-right font-mono">{formatPrice(mark)}</td>
                 <td className="py-2 pr-3 text-right font-mono text-ink-600">{trade.order_value_try == null ? "—" : formatTL(trade.order_value_try)}</td>
                 <td className={`py-2 pr-3 text-right font-mono ${tone}`}>{pnl.try == null ? "—" : `${formatSignedTL(pnl.try)} (${pnl.pct?.toFixed(2)}%)`}</td>
-                <td className="py-2 pr-3"><Badge tone={trade.status === "open" ? "accent" : "neutral"}>{trade.status === "open" ? "açık" : (trade.exit_reason || "kapandı")}</Badge></td>
+                <td className="py-2 pr-3">
+                  <span className="inline-flex flex-wrap items-center gap-1">
+                    <Badge tone={trade.status === "open" ? "accent" : "neutral"}>{trade.status === "open" ? "açık" : (trade.exit_reason || "kapandı")}</Badge>
+                    {trade.status === "open" && trade.trailing_activated ? <Badge tone="warn">Trailing</Badge> : null}
+                  </span>
+                </td>
                 {onClose && (
                   <td className="py-2 text-right">
                     <button type="button" onClick={() => onClose(trade)} className="rounded-md border border-line px-2 py-1 text-[11px] font-semibold text-ink-600 hover:border-loss hover:text-loss">Kapat</button>
