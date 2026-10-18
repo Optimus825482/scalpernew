@@ -125,7 +125,7 @@ function GrafikContent() {
         </Card>)}
       </div>
       <PaperTrades />
-      <p className="text-[11px] text-ink-400">Varsayılan: fiyatın üzerinde EMA 7, 20 ve 99; alt panele Stochastic RSI 14 (bant 20 / 80). Diğer göstergeler ayardan açılır. Grafik kütüphanesi: TradingView Lightweight Charts™.</p>
+      <p className="text-[11px] text-ink-400">Varsayılan: fiyatın üzerinde SMA 7, 20 ve 99; alt panele Stochastic RSI 14 (bant 20 / 80). Diğer göstergeler ayardan açılır. Grafik kütüphanesi: TradingView Lightweight Charts™.</p>
     </div>
   );
 }

@@ -62,7 +62,7 @@ const STOCH_RSI_HIGH = 80;
 const EMA_TRIPLE = [7, 20, 99] as const;
 const SUB_PANE_IDS: Indicator[] = ["rsi", "stochrsi", "macd", "atr", "adx"];
 const INDICATORS: Array<{ id: Indicator; label: string }> = [
-  { id: "volume", label: "Hacim" }, { id: "ema3", label: "EMA 7/20/99" }, { id: "sma", label: "SMA" }, { id: "ema", label: "EMA" },
+  { id: "volume", label: "Hacim" }, { id: "ema3", label: "SMA 7/20/99" }, { id: "sma", label: "SMA" }, { id: "ema", label: "EMA" },
   { id: "bollinger", label: "Bollinger" }, { id: "stochrsi", label: "Stoch RSI" }, { id: "rsi", label: "RSI" }, { id: "macd", label: "MACD" },
   { id: "vwap", label: "VWAP" }, { id: "atr", label: "ATR" }, { id: "adx", label: "ADX" },
 ];
@@ -314,9 +314,9 @@ function calculate(candles: Candle[], periods: IndicatorConfig["periods"]) {
   return {
     sma: sma(closes, periods.sma),
     ema: ema(closes, periods.ema),
-    ema7: ema(closes, EMA_TRIPLE[0]),
-    ema20: ema(closes, EMA_TRIPLE[1]),
-    ema99: ema(closes, EMA_TRIPLE[2]),
+    ema7: sma(closes, EMA_TRIPLE[0]),
+    ema20: sma(closes, EMA_TRIPLE[1]),
+    ema99: sma(closes, EMA_TRIPLE[2]),
     upper, lower, rsi, stochK: stoch.k, stochD: stoch.d, adx, atr, histogram, vwap,
   };
 }
@@ -491,9 +491,9 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
         volume: main.addSeries(charts.HistogramSeries, { priceScaleId: "volume", priceFormat: { type: "volume" }, lastValueVisible: false, priceLineVisible: false }),
         sma: main.addSeries(charts.LineSeries, { color: "#3478e5", lineWidth: 2, priceLineVisible: false, lastValueVisible: false }),
         ema: main.addSeries(charts.LineSeries, { color: "#e3a126", lineWidth: 2, priceLineVisible: false, lastValueVisible: false }),
-        ema7: main.addSeries(charts.LineSeries, { color: "#f59e0b", lineWidth: 2, priceLineVisible: false, lastValueVisible: false, title: "EMA 7" }),
-        ema20: main.addSeries(charts.LineSeries, { color: "#3478e5", lineWidth: 2, priceLineVisible: false, lastValueVisible: false, title: "EMA 20" }),
-        ema99: main.addSeries(charts.LineSeries, { color: "#0f172a", lineWidth: 2, priceLineVisible: false, lastValueVisible: false, title: "EMA 99" }),
+        ema7: main.addSeries(charts.LineSeries, { color: "#f59e0b", lineWidth: 2, priceLineVisible: false, lastValueVisible: false, title: "SMA 7" }),
+        ema20: main.addSeries(charts.LineSeries, { color: "#3478e5", lineWidth: 2, priceLineVisible: false, lastValueVisible: false, title: "SMA 20" }),
+        ema99: main.addSeries(charts.LineSeries, { color: "#0f172a", lineWidth: 2, priceLineVisible: false, lastValueVisible: false, title: "SMA 99" }),
         upper: main.addSeries(charts.LineSeries, { color: "#9370db", lineWidth: 1, priceLineVisible: false, lastValueVisible: false }),
         lower: main.addSeries(charts.LineSeries, { color: "#9370db", lineWidth: 1, priceLineVisible: false, lastValueVisible: false }),
         vwap: main.addSeries(charts.LineSeries, { color: "#0e9f9a", lineWidth: 2, priceLineVisible: false, lastValueVisible: false }),
@@ -839,7 +839,7 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
           </div>
         )}
         {(signalMarks.length > 0 || config.enabled.includes("ema3")) && (
-          <span className="text-[10px] font-medium text-ink-500">son bildirim · son hedef · yeşil BUY: EMA kesişimi · Stoch RSI 80 altı 5 ve 15 dk’da, 1 dk’da aranmaz · Stoch 20 altı yeşil ok, 80 üstü kırmızı ok</span>
+          <span className="text-[10px] font-medium text-ink-500">son bildirim · son hedef · yeşil BUY: SMA 7/20/99 kesişimi · Stoch RSI 80 altı 5 ve 15 dk’da, 1 dk’da aranmaz · Stoch 20 altı yeşil ok, 80 üstü kırmızı ok</span>
         )}
       </div>
 
@@ -871,7 +871,7 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
       {/* 1-Tık Hazır Paketler */}
       <div className="mb-2.5 flex flex-wrap items-center gap-1.5 border-b border-line pb-2.5">
         <span className="text-[10px] font-bold uppercase tracking-wider text-ink-400 mr-1">Hazır Paketler:</span>
-        <button type="button" onClick={() => setConfig((p) => ({ ...p, enabled: ["ema3", "stochrsi"] }))} className="rounded-md border border-line bg-white px-2 py-1 text-[11px] font-semibold text-ink-800 hover:border-ink-400">◎ Varsayılan (EMA 7/20/99 + Stoch RSI)</button>
+        <button type="button" onClick={() => setConfig((p) => ({ ...p, enabled: ["ema3", "stochrsi"] }))} className="rounded-md border border-line bg-white px-2 py-1 text-[11px] font-semibold text-ink-800 hover:border-ink-400">◎ Varsayılan (SMA 7/20/99 + Stoch RSI)</button>
         <button type="button" onClick={() => setConfig((p) => ({ ...p, enabled: ["volume", "ema", "rsi", "vwap"] }))} className="rounded-md border border-line bg-white px-2 py-1 text-[11px] font-semibold text-accent hover:border-accent hover:bg-accent-soft">🎯 Scalp (EMA+RSI+VWAP)</button>
         <button type="button" onClick={() => setConfig((p) => ({ ...p, enabled: ["volume", "sma", "bollinger", "macd"] }))} className="rounded-md border border-line bg-white px-2 py-1 text-[11px] font-semibold text-violet-600 hover:border-violet-400 hover:bg-violet-50">📈 Trend (SMA+BB+MACD)</button>
         <button type="button" onClick={() => setConfig((p) => ({ ...p, enabled: ["volume", "atr", "adx", "bollinger"] }))} className="rounded-md border border-line bg-white px-2 py-1 text-[11px] font-semibold text-amber-700 hover:border-amber-400 hover:bg-amber-50">⚡ Volatilite (ATR+ADX+BB)</button>
