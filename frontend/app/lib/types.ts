@@ -236,6 +236,14 @@ export type BinanceHolding = {
   pnl_try: number | null;
   pnl_pct: number | null;
   has_active_order: boolean;
+  active_sl_price?: number | null;
+  active_tp_price?: number | null;
+  active_orders?: Array<{
+    symbol?: string;
+    side?: string | number;
+    price?: string | number;
+    stopPrice?: string | number;
+  }>;
 };
 export type BinancePositions = {
   holdings: BinanceHolding[];

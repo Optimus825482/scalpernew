@@ -3,15 +3,58 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { IChartApi, ISeriesApi, UTCTimestamp } from "lightweight-charts";
 import { apiRequest } from "../lib/api";
+import { usePoll } from "../lib/hooks";
 import { useLiveMessages, useLiveStatus } from "../lib/liveSocket";
 import { useAuth } from "../lib/auth";
 import { formatPrice } from "../lib/format";
 import { ribbonTimeframeLabel } from "../lib/sources";
+import type { BinanceHolding, BinancePositions, BinanceSettings } from "../lib/types";
 
 export type Candle = { time: number; open: number; high: number; low: number; close: number; volume: number };
 type Indicator = "volume" | "sma" | "ema" | "ema3" | "bollinger" | "rsi" | "stochrsi" | "macd" | "vwap" | "atr" | "adx";
 type IndicatorConfig = { version: number; enabled: Indicator[]; periods: { sma: number; ema: number; bollinger: number; rsi: number; atr: number; adx: number } };
 const INTERVALS = ["1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"] as const;
+
+type PositionLevel = { price: number; title: "Giriş" | "Stop" | "TP"; color: string };
+
+function chartPair(symbol: string): { base: string; quote: "TRY" | "USDT" | "" } {
+  const clean = String(symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (clean.endsWith("TRY")) return { base: clean.slice(0, -3), quote: "TRY" };
+  if (clean.endsWith("USDT")) return { base: clean.slice(0, -4), quote: "USDT" };
+  return { base: clean, quote: "" };
+}
+
+function samePair(orderSymbol: unknown, chartSymbol: string): boolean {
+  const left = String(orderSymbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const right = String(chartSymbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return Boolean(left) && left === right;
+}
+
+function isSellOrder(side: unknown): boolean {
+  const raw = String(side ?? "").toUpperCase();
+  return raw === "SELL" || raw === "1";
+}
+
+/** Gerçek hesaptaki alışın giriş, stop ve TP fiyatları. Yalnız grafiğin kendi paritesi. */
+function realPositionLevels(chartSymbol: string, holdings: BinanceHolding[] | undefined): PositionLevel[] {
+  const { base, quote } = chartPair(chartSymbol);
+  if (!base) return [];
+  const holding = (holdings || []).find((item) => String(item.asset || "").toUpperCase() === base && Number(item.total) > 0);
+  if (!holding) return [];
+  const levels: PositionLevel[] = [];
+  const entry = Number(holding.avg_cost_try);
+  if (quote === "TRY" && Number.isFinite(entry) && entry > 0) {
+    levels.push({ price: entry, title: "Giriş", color: "#2563eb" });
+  }
+  const orders = (holding.active_orders || []).filter((order) => samePair(order.symbol, chartSymbol));
+  const stop = orders.find((order) => Number(order.stopPrice || 0) > 0);
+  const target = orders.find((order) => isSellOrder(order.side) && Number(order.price || 0) > 0 && Number(order.stopPrice || 0) === 0);
+  const stopPrice = Number(stop?.stopPrice || 0);
+  const targetPrice = Number(target?.price || 0);
+  if (stopPrice > 0) levels.push({ price: stopPrice, title: "Stop", color: "#e24755" });
+  if (targetPrice > 0) levels.push({ price: targetPrice, title: "TP", color: "#089981" });
+  return levels;
+}
 const CONFIG_VERSION = 3;
 const STOCH_RSI_PERIOD = 14;
 const STOCH_RSI_LOW = 20;
@@ -296,6 +339,8 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
   initialSymbol?: string; initialInterval?: string; compact?: boolean; symbols?: string[]; onSymbolChange?: (symbol: string) => void; onIntervalChange?: (interval: string) => void; panelId?: string;
 }) {
   const { username } = useAuth();
+  const binanceSettings = usePoll<BinanceSettings>("/api/binance/settings", 60_000);
+  const positions = usePoll<BinancePositions>(binanceSettings.data?.configured ? "/api/binance/positions" : null, 30_000);
   const [symbol, setSymbol] = useState(normalizeSymbol(initialSymbol));
   const [interval, setInterval] = useState<string>(INTERVALS.includes(initialInterval as typeof INTERVALS[number]) ? initialInterval : "5m");
   const [candles, setCandles] = useState<Candle[]>([]);
@@ -321,6 +366,7 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
   const markerApiRef = useRef<{ setMarkers: (markers: ChartMarker[]) => void } | null>(null);
   const markerFactoryRef = useRef<((series: ISeriesApi<"Candlestick">, markers: ChartMarker[]) => { setMarkers: (markers: ChartMarker[]) => void }) | null>(null);
   const targetLineRef = useRef<{ applyOptions?: (options: object) => void } | null>(null);
+  const positionLinesRef = useRef<Array<{ applyOptions?: (options: object) => void }>>([]);
   const seriesRef = useRef<Record<string, ISeriesApi<any>>>({});
   const socketStatus = useLiveStatus();
   const socketStatusRef = useRef(socketStatus);
@@ -495,7 +541,7 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
       observer.observe(containerRef.current); observer.observe(subContainerRef.current);
       setReady(true);
     }).catch(() => setError("Grafik bileşeni yüklenemedi."));
-    return () => { cancelled = true; observer?.disconnect(); main?.remove(); sub?.remove(); chartRef.current = null; subChartRef.current = null; candleSeriesRef.current = null; markerApiRef.current = null; targetLineRef.current = null; seriesRef.current = {}; appliedRef.current = null; setReady(false); };
+    return () => { cancelled = true; observer?.disconnect(); main?.remove(); sub?.remove(); chartRef.current = null; subChartRef.current = null; candleSeriesRef.current = null; markerApiRef.current = null; targetLineRef.current = null; positionLinesRef.current = []; seriesRef.current = {}; appliedRef.current = null; setReady(false); };
   }, [compact]);
 
   useEffect(() => {
@@ -695,6 +741,37 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
     }
   }, [candles, config.enabled, ready, signalMarks, values]);
 
+  const positionLevels = useMemo(
+    () => realPositionLevels(symbol, positions.data?.holdings),
+    [symbol, positions.data],
+  );
+  useLiveMessages((message) => {
+    if (message.type !== "binance_user_event") return;
+    const event = message.data as { event_type?: string } | undefined;
+    if (event?.event_type !== "executionReport") return;
+    positions.reload();
+  });
+  useEffect(() => {
+    const series = candleSeriesRef.current;
+    if (series) {
+      for (const line of positionLinesRef.current) {
+        try { series.removePriceLine(line as never); } catch { /* seri yenilendiyse çizgi de gitmiştir */ }
+      }
+    }
+    positionLinesRef.current = [];
+    if (!ready || !series) return;
+    for (const level of positionLevels) {
+      positionLinesRef.current.push(series.createPriceLine({
+        price: level.price,
+        color: level.color,
+        lineWidth: level.title === "Giriş" ? 2 : 1,
+        lineStyle: level.title === "Giriş" ? 0 : 2,
+        axisLabelVisible: true,
+        title: level.title,
+      }));
+    }
+  }, [positionLevels, ready]);
+
   useEffect(() => {
     const chart = chartRef.current;
     const series = candleSeriesRef.current;
@@ -853,7 +930,7 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
       } ${config.enabled.some((id) => SUB_PANE_IDS.includes(id)) ? "" : "hidden"}`}
     />
     <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-ink-400" role="status">
-      <span>{live ? `WebSocket canlı · son mum ${tickAge}s önce` : `REST yedek · son yenileme ${restAge == null ? "bekleniyor" : `${restAge}s önce`}`}{error ? ` · ${error}` : ""}</span>
+      <span>{live ? `WebSocket canlı · son mum ${tickAge}s önce` : `REST yedek · son yenileme ${restAge == null ? "bekleniyor" : `${restAge}s önce`}`}{error ? ` · ${error}` : ""}{positionLevels.length ? ` · ${positionLevels.map((level) => `${level.title} ${formatPrice(level.price)}`).join(" · ")}` : ""}</span>
       <a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noreferrer" className="underline decoration-dotted">TradingView Lightweight Charts™ attribution</a>
     </div>
   </section>;
