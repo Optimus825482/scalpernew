@@ -460,6 +460,9 @@ def test_get_symbol_filters_parses_lot_size():
     assert filters["min_qty"] == 0.0001
     assert filters["min_notional"] == 10
     assert filters["quote_asset"] == "USDT"
+    again = btp.resolve_symbol_filters("k", "s", "BTCUSDT")
+    assert again[0] == "BTC_USDT"
+    assert again[1]["quote_asset"] == "USDT"
 
 
 def test_fmt_price_rounds_to_tick_size():

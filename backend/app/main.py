@@ -49,10 +49,11 @@ from app import chat_prediction_learning
 from app import chat_prediction_replay
 from app import llm_analysis
 from app.binance_tr_private import (get_account_balance, get_trade_history, get_symbol_filters,
+                                    resolve_symbol_filters,
                                     place_market_sell, place_market_buy, place_oco_sell,
                                     place_stop_loss_sell, place_limit_sell, cancel_order, get_open_orders,
                                     place_spot_order, get_order_detail, BinanceTrAmbiguousOrderError,
-                                    BinanceTrPartialFillError, reconcile_sell_fill)
+                                    BinanceTrApiError, BinanceTrPartialFillError, reconcile_sell_fill)
 from app.embedding_worker import worker as embedding_worker, trade_document, signal_document
 from app.memory_service import build_document
 from app import memory_service
@@ -3698,10 +3699,10 @@ async def binance_order(payload: dict, request: Request):
         raise HTTPException(status_code=422, detail="Geçerli symbol ve BUY/SELL side gerekli")
     # Emir öncesi kullanılabilir spot bakiyeyi taze oku; exchange yine nihai
     # doğrulamayı yapar. Kilitli varlıklar harcanabilir bakiye sayılmaz.
-    filters = await asyncio.to_thread(get_symbol_filters, api_key, api_secret,
-                                      symbol.replace("/", "").replace("_", ""))
+    symbol_u, filters = await asyncio.to_thread(resolve_symbol_filters, api_key, api_secret, symbol)
     if not filters:
         raise HTTPException(status_code=422, detail="Binance TR sembolü bulunamadı")
+    symbol = symbol_u
     quote_asset = str(filters.get("quote_asset") or "").upper()
     base_asset = symbol.replace("_", "").replace("/", "")
     if quote_asset and base_asset.endswith(quote_asset):
@@ -3751,6 +3752,8 @@ async def binance_order(payload: dict, request: Request):
             "message": "Emir sonucu belirsiz. Çift emir riskini önlemek için tekrar gönderilmedi; durumu client_id ile sorgulayın.",
             "symbol": exc.symbol, "client_id": exc.client_order_id})
     except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except BinanceTrApiError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Binance TR emri gönderilemedi: {exc}")
@@ -3836,13 +3839,12 @@ async def binance_set_sl_tp(payload: dict, request: Request):
     if mode not in ("OCO", "SL_ONLY", "TP_ONLY"):
         raise HTTPException(status_code=422, detail="Geçersiz mod (OCO, SL_ONLY veya TP_ONLY olmalı)")
 
-    # Sembol ve filtreleri çöz
+    # Sembol ve filtreleri çöz. Özel uç SAND_TRY ister; SANDTRY da aynı çifte bağlanır.
     symbol_u, filters = None, None
     for quote in ("TRY", "USDT"):
-        cand = f"{asset}_{quote}"
-        f = await asyncio.to_thread(get_symbol_filters, api_key, api_secret, cand)
-        if f:
-            symbol_u, filters = cand, f
+        cand, found = await asyncio.to_thread(resolve_symbol_filters, api_key, api_secret, f"{asset}{quote}")
+        if found:
+            symbol_u, filters = cand, found
             break
     if not symbol_u:
         raise HTTPException(status_code=422, detail=f"{asset} için uygun işlem çifti (TRY/USDT) bulunamadı")
@@ -3965,7 +3967,8 @@ async def binance_set_sl_tp(payload: dict, request: Request):
             detail += f" | İptal edilen {len(restored)} stop emri geri kuruldu (pozisyon korumalı)"
         elif _cancelled_sells:
             detail += " | UYARI: iptal edilen eski emirler geri kurulamadı — pozisyon KORUMASIZ olabilir, kontrol edin"
-        raise HTTPException(status_code=502, detail=detail)
+        status = 422 if isinstance(exc, (ValueError, BinanceTrApiError)) else 502
+        raise HTTPException(status_code=status, detail=detail)
 
     _actor, _actor_role = _session_identity(request)
     await log_user_action(_actor, _actor_role, "trade", f"BINANCE_TR_SET_{mode}",

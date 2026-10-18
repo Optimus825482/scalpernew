@@ -673,6 +673,23 @@ def get_symbol_filters(api_key: str, api_secret: str, symbol_underscore: str) ->
         return _symbols_cache["filters"].get(symbol_underscore)
 
 
+def resolve_symbol_filters(api_key: str, api_secret: str, symbol: str) -> tuple[str, dict | None]:
+    """SANDTRY veya SAND_TRY → dokümandaki alt çizgili sembol ve filtreleri.
+
+    Özel emir uçları `SAND_TRY` ister. Bitişik yazım önbellekte yoktur; önce
+    resmi eşleme, yoksa alt çizgili tahmin denenir.
+    """
+    _load_symbol_list(api_key, api_secret)
+    compact = (symbol or "").upper().replace("/", "").replace("_", "").replace(" ", "")
+    underscore = _to_underscore_symbol(compact)
+    filters = get_symbol_filters(api_key, api_secret, underscore)
+    if filters is None and compact:
+        filters = get_symbol_filters(api_key, api_secret, compact)
+        if filters is not None:
+            underscore = compact
+    return underscore, filters
+
+
 def get_all_valid_symbols(api_key: str = "", api_secret: str = "") -> set[str]:
     """Geçerli tüm alt çizgili sembollerin kümesini döndürür (cache'li)."""
     _load_symbol_list(api_key, api_secret)

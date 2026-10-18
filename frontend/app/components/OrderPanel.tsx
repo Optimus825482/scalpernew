@@ -88,6 +88,7 @@ export default function OrderPanel({
   const [stopLimitPrice, setStopLimitPrice] = useState("");
   const [busy, setBusy] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [bookOpen, setBookOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState<{ tone: "gain" | "loss" | "warn"; text: string } | null>(null);
   const [receipt, setReceipt] = useState<OrderReceipt | null>(null);
@@ -366,16 +367,31 @@ export default function OrderPanel({
           </div>
         </div>
 
-        <OrderBook
-          symbol={activeSymbol}
-          onSelectPrice={(price) => {
-            setKind("LIMIT");
-            const precision = priceDigits(price);
-            setLimitPrice(price.toFixed(precision));
-            setMessage({ tone: "gain", text: `Limit fiyatı ${formatPrice(price)} olarak aktarıldı.` });
-            setTimeout(() => setMessage(null), 3500);
-          }}
-        />
+        <div className="mt-3 rounded-xl border border-line">
+          <button
+            type="button"
+            aria-expanded={bookOpen}
+            onClick={() => setBookOpen((open) => !open)}
+            className="flex w-full items-center justify-between px-3 py-2 text-left"
+          >
+            <span className="odak-kicker">Emir defteri</span>
+            <span className="text-xs text-ink-400">{bookOpen ? "Gizle" : "Göster"}</span>
+          </button>
+          {bookOpen && (
+            <div className="border-t border-line px-1 pb-2">
+              <OrderBook
+                symbol={activeSymbol}
+                onSelectPrice={(price) => {
+                  setKind("LIMIT");
+                  const precision = priceDigits(price);
+                  setLimitPrice(price.toFixed(precision));
+                  setMessage({ tone: "gain", text: `Limit fiyatı ${formatPrice(price)} olarak aktarıldı.` });
+                  setTimeout(() => setMessage(null), 3500);
+                }}
+              />
+            </div>
+          )}
+        </div>
 
         <div className="mt-3 grid grid-cols-2 gap-2">
           <button type="button" onClick={() => { setSide("BUY"); setAmount(""); }} className={`rounded-lg py-2 text-sm font-semibold ${side === "BUY" ? "bg-gain text-white" : "border border-line text-ink-500"}`}>AL</button>
