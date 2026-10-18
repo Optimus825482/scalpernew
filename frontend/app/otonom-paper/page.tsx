@@ -3,6 +3,7 @@
 import AppLink from "../components/AppLink";
 import { apiRequest } from "../lib/api";
 import { usePoll } from "../lib/hooks";
+import { livePrice, useSymbolPrices } from "../lib/livePrices";
 import { useAuth } from "../lib/auth";
 import { fmtDateTime, formatPrice, formatSignedTL, formatTL } from "../lib/format";
 import { Badge, Card, EmptyState, SectionHeader, Skeleton } from "../components/ui";
@@ -60,9 +61,13 @@ function money(trade: PaperTrade): { try: number | null; pct: number | null } {
 export default function OtonomPaperPage() {
   const { role } = useAuth();
   const isAdmin = String(role || "").toLowerCase() === "admin";
-  const book = usePoll<PaperStats>(isAdmin ? "/api/auto-paper/stats?day=all" : null, 15_000);
-  const open = usePoll<PaperList>(isAdmin ? "/api/auto-paper/trades?status=open&limit=50" : null, 15_000);
+  const book = usePoll<PaperStats>(isAdmin ? "/api/auto-paper/stats?day=all" : null, 45_000);
+  const open = usePoll<PaperList>(isAdmin ? "/api/auto-paper/trades?status=open&limit=50" : null, 45_000);
   const closed = usePoll<PaperList>(isAdmin ? "/api/auto-paper/trades?status=closed&limit=40" : null, 30_000);
+  const rows = open.data?.trades || [];
+  const prices = useSymbolPrices(rows.map((trade) => trade.symbol));
+  const openRows = rows.map((trade) => ({ ...trade, current_price: livePrice(trade.symbol, trade.current_price, prices) }));
+  const closedRows = closed.data?.trades || [];
 
   if (!isAdmin) return <EmptyState title="Yalnız yönetici" hint="Otonom paper defteri admin oturumunda görünür." />;
 
@@ -73,9 +78,6 @@ export default function OtonomPaperPage() {
     closed.reload();
     book.reload();
   }
-
-  const openRows = open.data?.trades || [];
-  const closedRows = closed.data?.trades || [];
   const cash = book.data?.cash_try;
   const initial = book.data?.initial_try ?? 10000;
   const pct = book.data?.balance_pct ?? 30;

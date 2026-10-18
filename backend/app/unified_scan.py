@@ -140,7 +140,7 @@ def _source_ids(item: dict) -> list[str]:
 
 
 def _merge_ribbon_candidates(out: list[dict]) -> None:
-    """Kapanmış 5m EMA kurdele alımını aday listesine ekler. Kayıt yazmaz."""
+    """Kapanmış 1m EMA kurdele alımını aday listesine ekler. Kayıt yazmaz."""
     try:
         from app.ema_ribbon import ribbon_candidates
         hits = ribbon_candidates()

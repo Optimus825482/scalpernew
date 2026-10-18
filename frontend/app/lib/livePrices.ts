@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiRequest } from "./api";
+import { useLiveMessages } from "./liveSocket";
 
 type TickerRow = { symbol: string; available?: boolean; last?: number | null };
 
@@ -38,6 +39,42 @@ export function useLivePrices(symbols: string[], intervalMs = 10_000): Record<st
   }, [key, intervalMs]);
 
   return prices;
+}
+
+type PriceTick = { price?: number; symbol?: string };
+
+/** Açık işlem fiyatı. REST listesi yapı içindir; fiyat `binance_price` akışından gelir. */
+export function useSymbolPrices(symbols: string[]): Record<string, number> {
+  const [prices, setPrices] = useState<Record<string, number>>({});
+  const wanted = useRef(new Set<string>());
+  wanted.current = new Set(symbols.map((symbol) => symbol.toUpperCase()).filter(Boolean));
+
+  useLiveMessages((message) => {
+    if (message.type !== "binance_price") return;
+    const ticks = (message.data as { ticks?: Record<string, PriceTick> } | undefined)?.ticks;
+    if (!ticks) return;
+    setPrices((previous) => {
+      let changed = false;
+      const next = { ...previous };
+      for (const symbol of wanted.current) {
+        const tick = ticks[symbol];
+        const price = Number(tick?.price);
+        if (!Number.isFinite(price) || price <= 0 || next[symbol] === price) continue;
+        next[symbol] = price;
+        changed = true;
+      }
+      return changed ? next : previous;
+    });
+  });
+
+  return prices;
+}
+
+export function livePrice(symbol: string, fallback: number | null | undefined, prices: Record<string, number>): number | null {
+  const live = prices[symbol.toUpperCase()];
+  if (live > 0) return live;
+  const current = Number(fallback);
+  return Number.isFinite(current) && current > 0 ? current : null;
 }
 
 type ChainMark = { at: number; base: number };

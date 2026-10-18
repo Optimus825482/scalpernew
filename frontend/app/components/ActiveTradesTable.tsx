@@ -2,6 +2,7 @@
 
 import AppLink from "./AppLink";
 import { usePoll } from "../lib/hooks";
+import { useSymbolPrices } from "../lib/livePrices";
 import { formatFixed, formatPct, formatPrice, formatSignedTL } from "../lib/format";
 import { isVisibleHolding } from "../lib/holdings";
 import type { BinancePositions, BinanceSettings } from "../lib/types";
@@ -19,11 +20,21 @@ export default function ActiveTradesTable({
   onSelectSymbol?: (symbol: string) => void;
 }) {
   const settings = usePoll<BinanceSettings>("/api/binance/settings", 30_000);
-  const account = usePoll<BinancePositions>(settings.data?.configured ? "/api/binance/positions" : null, 20_000);
+  const account = usePoll<BinancePositions>(settings.data?.configured ? "/api/binance/positions" : null, 45_000);
   const { isFavorite, toggleFavorite } = useWatchlist();
 
   const coins = (account.data?.holdings || []).filter((h) => h.asset !== "TRY" && Number(h.total) > 0);
-  const holdings = coins.filter(isVisibleHolding).slice(0, limit);
+  const prices = useSymbolPrices(coins.map((holding) => `${holding.asset}TRY`));
+  const marked = coins.map((holding) => {
+    const live = prices[`${holding.asset}TRY`];
+    if (!(live > 0)) return holding;
+    const total = Number(holding.total);
+    const avg = holding.avg_cost_try == null ? null : Number(holding.avg_cost_try);
+    const pnl = avg != null && avg > 0 ? (live - avg) * total : holding.pnl_try;
+    const pct = avg != null && avg > 0 ? ((live - avg) / avg) * 100 : holding.pnl_pct;
+    return { ...holding, price_try: live, value_try: total * live, pnl_try: pnl, pnl_pct: pct };
+  });
+  const holdings = marked.filter(isVisibleHolding).slice(0, limit);
 
   if (!settings.data?.configured && !settings.loading)
     return (

@@ -1558,7 +1558,14 @@ async def open_ribbon_candidates(candidates: list[dict]) -> int:
     opened = 0
     seen: set[str] = set()
     for raw in candidates:
-        if not raw.get("ribbon_bar_ms"):
+        try:
+            bar_ms = int(raw.get("ribbon_bar_ms") or 0)
+        except (TypeError, ValueError):
+            bar_ms = 0
+        if bar_ms <= 0:
+            continue
+        from app.ema_ribbon import ribbon_bar_is_fresh
+        if not ribbon_bar_is_fresh(bar_ms):
             continue
         symbol = str(raw.get("symbol") or "").upper()
         if not symbol or symbol in seen:

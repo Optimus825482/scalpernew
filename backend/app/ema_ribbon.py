@@ -1,23 +1,26 @@
 """EMA 7/20/99 kurdele alımı.
 
 Turuncu EMA 7, mavi EMA 20'yi yukarı keser ve ikisi de siyah EMA 99'un
-üstündedir. Ölçüm kapanmış 5 dakikalık mumdadır; oluşan mum sayılmaz.
+üstündedir. Ölçüm kapanmış 1 dakikalık mumdadır; oluşan mum sayılmaz.
 Grafikteki EMA ile aynı tohum kullanılır: ilk değer periyotluk SMA.
 """
 from __future__ import annotations
 
 import logging
+import time
 
 from app.config import config
 
 logger = logging.getLogger("scalper.ema_ribbon")
 
-RIBBON_TIMEFRAME = "5m"
+RIBBON_TIMEFRAME = "1m"
 RIBBON_FAST = 7
 RIBBON_MID = 20
 RIBBON_SLOW = 99
 RIBBON_SCORE = 75.0
 RIBBON_HORIZON_MINUTES = 15
+RIBBON_LIST_WINDOW_MS = 15 * 60 * 1000
+RIBBON_TRADE_MAX_AGE_SEC = 180.0
 
 
 def ema_series(values: list[float], period: int) -> list[float | None]:
@@ -52,6 +55,31 @@ def ribbon_buy_at(fast: list[float | None], mid: list[float | None], slow: list[
     return bool(crossed_up and above_slow)
 
 
+def select_recent_cross(closes: list[float], stamps: list[int], now_ms: int, window_ms: int = RIBBON_LIST_WINDOW_MS) -> int | None:
+    """Penceredeki en yeni kurdele alımının indeksi. Eski kesişim dönmez."""
+    if len(closes) < 2 or len(stamps) != len(closes):
+        return None
+    fast = ema_series(closes, RIBBON_FAST)
+    mid = ema_series(closes, RIBBON_MID)
+    slow = ema_series(closes, RIBBON_SLOW)
+    chosen: int | None = None
+    earliest = int(now_ms) - int(window_ms)
+    for index in range(1, len(closes)):
+        if int(stamps[index]) < earliest:
+            continue
+        if ribbon_buy_at(fast, mid, slow, index):
+            chosen = index
+    return chosen
+
+
+def ribbon_bar_is_fresh(bar_ms: int, now: float | None = None, max_age_sec: float = RIBBON_TRADE_MAX_AGE_SEC) -> bool:
+    """Yeni kapanmış 1 dk mumu. Eski kesişim paper veya bildirim açmaz."""
+    if bar_ms <= 0:
+        return False
+    moment = time.time() if now is None else float(now)
+    return (moment - (bar_ms / 1000.0)) <= float(max_age_sec)
+
+
 def closed_ribbon_buy(closes: list[float]) -> bool:
     """Son kapanmış mumda kurdele alımı var mı. Seride oluşan mum olmamalı."""
     if len(closes) < RIBBON_SLOW + 1:
@@ -70,10 +98,11 @@ def net_target_pct() -> float:
 
 
 def ribbon_candidates() -> list[dict]:
-    """Aktif evrendeki kapanmış 5m kurdele alımları. Yazma yapmaz."""
+    """Aktif evrendeki son 15 dk içindeki kapanmış 1m kurdele alımları. Yazma yapmaz."""
     from app.state import market
 
     target = net_target_pct()
+    now_ms = int(time.time() * 1000)
     rows: list[dict] = []
     symbols = [str(symbol).upper() for symbol in (getattr(market, "symbols", []) or []) if symbol]
     for symbol in symbols:
@@ -84,14 +113,16 @@ def ribbon_candidates() -> list[dict]:
             continue
         try:
             closes = [float(value) for value in closes_raw]
+            stamp_ms = [int(value) for value in stamps]
         except (TypeError, ValueError):
             continue
-        if not closed_ribbon_buy(closes):
+        index = select_recent_cross(closes, stamp_ms, now_ms)
+        if index is None:
             continue
-        price = closes[-1]
+        price = closes[index]
         if price <= 0:
             continue
-        bar_ms = int(stamps[-1] or 0)
+        bar_ms = stamp_ms[index]
         if bar_ms <= 0:
             continue
         rows.append({

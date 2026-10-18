@@ -98,7 +98,8 @@ export default function Home() {
     // Sembol bazında TEKİL: aynı sembol 5 dk ve 15 dk ufuklarında iki kart
     // olarak çıkıyordu; en güçlü ufuk temsil eder, diğerleri elenir.
     const unique = new Map<string, OpportunityView>();
-    for (const candidate of run?.candidates ?? []) {
+    const pool = Array.isArray(run?.recent_candidates) ? run.recent_candidates : (run?.candidates ?? []);
+    for (const candidate of pool) {
       const view = toOpportunityView(candidate);
       if (!view.symbol) continue;
       const existing = unique.get(view.symbol);
@@ -343,7 +344,7 @@ export default function Home() {
                 ))}
               </div>
             )}
-            {run && <p className="mt-3 text-[10px] text-ink-400">Sürüm {run.algorithm_version ?? "combined-v1"} · her sembol yalnızca en güçlü ufkuyla bir kez listelenir.{minScore > 0 ? ` Skor filtresi ${minScore}+ uygulanıyor.` : ""}</p>}
+            {run && <p className="mt-3 text-[10px] text-ink-400">Son 15 dakikanın taramaları ve 1 dk EMA alımları · her sembol bir kez.{minScore > 0 ? ` Skor filtresi ${minScore}+ uygulanıyor.` : ""}</p>}
           </Card>
         </div>
       ) : (
@@ -401,7 +402,7 @@ export default function Home() {
                 ))}
               </div>
             )}
-            {run && <p className="mt-3 text-[10px] text-ink-400">Sürüm {run.algorithm_version ?? "combined-v1"} · her sembol yalnızca en güçlü ufkuyla bir kez listelenir.{minScore > 0 ? ` Skor filtresi ${minScore}+ uygulanıyor.` : ""}</p>}
+            {run && <p className="mt-3 text-[10px] text-ink-400">Son 15 dakikanın taramaları ve 1 dk EMA alımları · her sembol bir kez.{minScore > 0 ? ` Skor filtresi ${minScore}+ uygulanıyor.` : ""}</p>}
           </Card>
 
           <div id="islem-paneli" className="scroll-mt-24 lg:sticky lg:top-20 lg:self-start">

@@ -1,7 +1,8 @@
 """EMA 7, EMA 20'yi EMA 99 üstünde yukarı kesince alım; aksi halde değil."""
 import unittest
+from unittest import mock
 
-from app.ema_ribbon import ema_series, ribbon_buy_at
+from app.ema_ribbon import ema_series, ribbon_buy_at, select_recent_cross
 
 
 class EmaRibbonTests(unittest.TestCase):
@@ -29,6 +30,24 @@ class EmaRibbonTests(unittest.TestCase):
         mid = [1.0, 1.1]
         slow = [0.5, 0.5]
         self.assertFalse(ribbon_buy_at(fast, mid, slow, 1))
+
+    def test_cross_outside_fifteen_minutes_is_ignored(self):
+        closes = [1.0, 1.0, 1.0]
+        stamps = [1_000, 2_000, 3_000]
+        fast = [1.0, 1.0, 2.0]
+        mid = [1.0, 2.0, 1.0]
+        slow = [0.0, 0.0, 0.0]
+        with mock.patch("app.ema_ribbon.ema_series", side_effect=[fast, mid, slow]):
+            self.assertIsNone(select_recent_cross(closes, stamps, now_ms=20_000, window_ms=1_000))
+
+    def test_recent_cross_is_kept(self):
+        closes = [1.0, 1.0, 1.0]
+        stamps = [1_000, 2_000, 3_000]
+        fast = [1.0, 1.0, 2.0]
+        mid = [1.0, 2.0, 1.0]
+        slow = [0.0, 0.0, 0.0]
+        with mock.patch("app.ema_ribbon.ema_series", side_effect=[fast, mid, slow]):
+            self.assertEqual(select_recent_cross(closes, stamps, now_ms=3_500, window_ms=1_000), 2)
 
     def test_down_cross_is_not_buy(self):
         fast = [1.4, 1.0]

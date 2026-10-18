@@ -3,6 +3,7 @@
 import AppLink from "./AppLink";
 import { apiRequest } from "../lib/api";
 import { usePoll } from "../lib/hooks";
+import { livePrice, useSymbolPrices } from "../lib/livePrices";
 import { useAuth } from "../lib/auth";
 import { fmtDateTime, formatPrice, formatSignedTL } from "../lib/format";
 import { Badge, Card, EmptyState, SectionHeader, Skeleton } from "./ui";
@@ -59,8 +60,12 @@ function pnlOf(trade: PaperTrade): { try: number | null; pct: number | null } {
 export default function PaperTrades() {
   const { role } = useAuth();
   const isAdmin = String(role || "").toLowerCase() === "admin";
-  const open = usePoll<PaperList>(isAdmin ? "/api/auto-paper/trades?status=open&limit=50" : null, 15_000);
+  const open = usePoll<PaperList>(isAdmin ? "/api/auto-paper/trades?status=open&limit=50" : null, 45_000);
   const closed = usePoll<PaperList>(isAdmin ? "/api/auto-paper/trades?status=closed&limit=8" : null, 30_000);
+  const rows = open.data?.trades || [];
+  const prices = useSymbolPrices(rows.map((trade) => trade.symbol));
+  const openRows = rows.map((trade) => ({ ...trade, current_price: livePrice(trade.symbol, trade.current_price, prices) }));
+  const closedRows = closed.data?.trades || [];
 
   if (!isAdmin) return null;
 
@@ -70,9 +75,6 @@ export default function PaperTrades() {
     open.reload();
     closed.reload();
   }
-
-  const openRows = open.data?.trades || [];
-  const closedRows = closed.data?.trades || [];
 
   return (
     <Card className="p-5">

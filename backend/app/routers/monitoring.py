@@ -90,7 +90,32 @@ _loop_task = None
 # ortak kilit — çift tarama/çift journal/state yarışını önler (2026-09-04).
 _scan_lock = asyncio.Lock()
 _combined_scan_lock = asyncio.Lock()
-_unified_scan_cache: dict = {"generated_at": 0.0, "candidates": []}
+_unified_scan_cache: dict = {"generated_at": 0.0, "candidates": [], "recent_candidates": []}
+_RECENT_SCAN_WINDOW_SEC = 15 * 60
+_recent_by_symbol: dict[str, dict] = {}
+
+
+def fold_recent_candidates(candidates: list, now: float | None = None) -> list[dict]:
+    """Son 15 dakikanın taramalarında görülen adayları sembol başına tutar."""
+    moment = time.time() if now is None else float(now)
+    for raw in candidates or []:
+        if not isinstance(raw, dict):
+            continue
+        symbol = str(raw.get("symbol") or "").upper()
+        if not symbol:
+            continue
+        previous = _recent_by_symbol.get(symbol) or {}
+        row = dict(raw)
+        row["first_seen"] = float(previous.get("first_seen") or moment)
+        row["last_seen"] = moment
+        _recent_by_symbol[symbol] = row
+    cutoff = moment - _RECENT_SCAN_WINDOW_SEC
+    stale = [symbol for symbol, row in _recent_by_symbol.items() if float(row.get("last_seen") or 0) < cutoff]
+    for symbol in stale:
+        _recent_by_symbol.pop(symbol, None)
+    ranked = list(_recent_by_symbol.values())
+    ranked.sort(key=lambda row: float(row.get("scan_score") or row.get("quality_score") or 0), reverse=True)
+    return ranked
 # /api/unified-scan/latest için arka plan tazeleme görevi (tek uçuş).
 _unified_scan_refresh_task: asyncio.Task | None = None
 
@@ -4258,7 +4283,11 @@ async def daily_rising_manual_scan(request: Request = None):
         logger.warning("kullanıcı birleşik taraması başarısız: %s", exc)
         raise HTTPException(status_code=502, detail="Piyasa taraması tamamlanamadı") from exc
     completed_at = time.time()
-    _unified_scan_cache.update(generated_at=completed_at, candidates=candidates)
+    _unified_scan_cache.update(
+        generated_at=completed_at,
+        candidates=candidates,
+        recent_candidates=fold_recent_candidates(candidates, completed_at),
+    )
     saved_id = await database.save_unified_scan_run({
         "scan_id": scan_id, "username": username,
         "started_at": started_at, "completed_at": completed_at,
@@ -4300,8 +4329,10 @@ async def unified_scan_latest(request: Request):
     # sunucu neredeyse sürekli tarıyordu ve paper sayfası da kuyrukta kalıyordu.
     if not generated_at or time.time() - generated_at > 90:
         _kick_unified_scan_refresh()
+    recent = _unified_scan_cache.get("recent_candidates") or []
     return {"run": {"scan_id": None, "generated_at": generated_at,
                      "algorithm_version": "combined-v1", "candidates": candidates,
+                     "recent_candidates": recent,
                      "count": len(candidates)}}
 
 
@@ -4320,6 +4351,9 @@ async def _persist_ribbon_notifications(candidates: list) -> None:
         except (TypeError, ValueError):
             bar_ms = 0
         if bar_ms <= 0:
+            continue
+        from app.ema_ribbon import ribbon_bar_is_fresh
+        if not ribbon_bar_is_fresh(bar_ms):
             continue
         symbol = str(row.get("symbol") or "").upper()
         if not symbol or _ribbon_notified.get(symbol) == bar_ms:
@@ -4374,7 +4408,12 @@ async def _refresh_unified_scan_async() -> None:
                     time.time() - float(_unified_scan_cache["generated_at"]) <= 90:
                 return
             candidates = await _combined_scan_rows()
-            _unified_scan_cache.update(generated_at=time.time(), candidates=candidates)
+            scanned_at = time.time()
+            _unified_scan_cache.update(
+                generated_at=scanned_at,
+                candidates=candidates,
+                recent_candidates=fold_recent_candidates(candidates, scanned_at),
+            )
             # Paper açılışı kilidin DIŞINDA, ayrı görevde: tarama kilidi ve
             # sayfa istekleri alım denemesini beklemesin.
             asyncio.get_running_loop().create_task(_open_paper_after_scan(candidates))
