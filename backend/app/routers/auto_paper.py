@@ -18,6 +18,7 @@ transaction'dır (advisory lock ile yarış koruması).
 import asyncio
 import json
 import logging
+import re
 import time
 import math
 
@@ -258,6 +259,58 @@ def _ribbon_timeframe_text(notification: dict) -> str | None:
         if part not in seen:
             seen.append(part)
     return ",".join(seen) or None
+
+
+_RIBBON_TF_RE = re.compile(r"ema-ribbon-[A-Z0-9]+-(1m|3m|5m|15m|30m|1h|4h|1d)-\d+", re.IGNORECASE)
+_RIBBON_MSG_RE = re.compile(r"\((1m|3m|5m|15m|30m|1h|4h|1d)\)", re.IGNORECASE)
+
+
+def _timeframes_from_notification(notif: dict | None) -> str | None:
+    """Bildirim metninden veya aday kimliğinden M1/M5/M15 kodunun ham halini çıkarır."""
+    if not isinstance(notif, dict):
+        return None
+    found: list[str] = []
+    for blob in (notif.get("candidate_id"), notif.get("message")):
+        text = str(blob or "")
+        for match in _RIBBON_TF_RE.findall(text) + _RIBBON_MSG_RE.findall(text):
+            code = str(match).lower()
+            if code not in found:
+                found.append(code)
+    return ",".join(found) or None
+
+
+def _attach_ribbon_timeframe(trade: dict, notif: dict | None, hints: list[dict]) -> None:
+    """Kurdele işleminde zaman dilimi yoksa bildirimden doldurur."""
+    if trade.get("trigger_timeframe"):
+        return
+    if str(trade.get("trigger_source") or "") != "ema_ribbon":
+        return
+    found = _timeframes_from_notification(notif)
+    if not found and hints:
+        try:
+            entry = float(trade.get("entry_time") or 0)
+        except (TypeError, ValueError):
+            entry = 0.0
+        symbol = str(trade.get("symbol") or "").upper()
+        best = None
+        best_gap = 30 * 60
+        for hint in hints:
+            if str(hint.get("symbol") or "").upper() != symbol:
+                continue
+            try:
+                detected = float(hint.get("detected_at") or 0)
+            except (TypeError, ValueError):
+                continue
+            gap = abs(detected - entry) if entry else 0.0
+            if entry and gap > best_gap:
+                continue
+            text = _timeframes_from_notification(hint)
+            if text and (best is None or gap < best_gap):
+                best = text
+                best_gap = gap
+        found = best
+    if found:
+        trade["trigger_timeframe"] = found
 
 
 async def try_open_from_notification(notification: dict) -> dict | None:
@@ -1899,6 +1952,17 @@ async def list_trades_endpoint(
             nid = t.get("notification_id")
             notif = notifs.get(int(nid)) if nid else None
             t["trigger_source"] = _trigger_source(notif) if notif else "ema_ribbon"
+    missing_tf = [
+        t for t in trades
+        if str(t.get("trigger_source") or "") == "ema_ribbon" and not t.get("trigger_timeframe")
+    ]
+    hints = await database.list_ribbon_notifications_for_symbols(
+        [str(t.get("symbol") or "") for t in missing_tf]
+    ) if missing_tf else []
+    for t in trades:
+        nid = t.get("notification_id")
+        notif = notifs.get(int(nid)) if nid else None
+        _attach_ribbon_timeframe(t, notif, hints)
     reset_at = await database.get_reset_cutoff()
     return {
         "paper_only": True,

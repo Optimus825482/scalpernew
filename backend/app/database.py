@@ -5480,11 +5480,35 @@ async def get_monitoring_notifications_by_ids(notification_ids: list[int]) -> di
         marks = ",".join(["?"] * len(ids))
         rows = conn.execute(
             "SELECT id, symbol, score, target_pct, price, expected_price, "
-            "horizon_minutes, detected_at, mode, sources "
+            "horizon_minutes, detected_at, mode, sources, message, candidate_id "
             f"FROM monitoring_notifications WHERE id IN ({marks})",
             tuple(ids),
         ).fetchall()
         return {int(row["id"]): dict(row) for row in rows}
+
+    return await _run_db(op)
+
+
+async def list_ribbon_notifications_for_symbols(symbols: list[str], limit: int = 400) -> list[dict]:
+    """Kurdele bildirimlerinden zaman dilimini paper satırına bağlamak için."""
+    clean = []
+    for raw in symbols or []:
+        symbol = str(raw or "").upper()
+        if symbol and symbol not in clean:
+            clean.append(symbol)
+    if not clean:
+        return []
+    cap = max(1, min(int(limit), 1000))
+
+    def op(conn):
+        marks = ",".join(["?"] * len(clean))
+        rows = conn.execute(
+            "SELECT symbol, message, candidate_id, detected_at "
+            f"FROM monitoring_notifications WHERE mode='ema_ribbon' AND symbol IN ({marks}) "
+            "ORDER BY detected_at DESC LIMIT ?",
+            tuple(clean) + (cap,),
+        ).fetchall()
+        return [dict(row) for row in rows]
 
     return await _run_db(op)
 

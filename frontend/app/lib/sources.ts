@@ -56,11 +56,43 @@ const RIBBON_TIMEFRAMES: Record<string, string> = {
   "1d": "1 gün",
 };
 
+const RIBBON_TIMEFRAME_CODES: Record<string, string> = {
+  "1m": "M1",
+  "3m": "M3",
+  "5m": "M5",
+  "15m": "M15",
+  "30m": "M30",
+  "1h": "H1",
+  "4h": "H4",
+  "1d": "D1",
+};
+
 /** Mum aralığını rozet metnine çevirir: 5m → 5 dk. */
 export function ribbonTimeframeLabel(code: unknown): string {
   const key = String(code ?? "").trim().toLowerCase();
   if (!key) return "";
   return RIBBON_TIMEFRAMES[key] || key;
+}
+
+/** Otonom paper rozeti: 5m → M5, 15m → M15. */
+export function ribbonTimeframeCode(code: unknown): string {
+  const key = String(code ?? "").trim().toLowerCase();
+  if (!key) return "";
+  return RIBBON_TIMEFRAME_CODES[key] || key.toUpperCase();
+}
+
+/** "5m,15m" → "M5 · M15". */
+export function ribbonTimeframeCodes(value: unknown): string {
+  const raw = Array.isArray(value) ? value : String(value ?? "").split(/[,|]/);
+  const seen = new Set<string>();
+  const labels: string[] = [];
+  for (const item of raw) {
+    const label = ribbonTimeframeCode(item);
+    if (!label || seen.has(label)) continue;
+    seen.add(label);
+    labels.push(label);
+  }
+  return labels.join(" · ");
 }
 
 /** "5m,15m" veya dizi → "5 dk · 15 dk". */

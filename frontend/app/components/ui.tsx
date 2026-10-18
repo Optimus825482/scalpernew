@@ -1,7 +1,7 @@
 "use client";
 
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-import { ribbonTimeframeNote, sourceLabel } from "../lib/sources";
+import { ribbonTimeframeCodes, ribbonTimeframeNote, sourceLabel } from "../lib/sources";
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "success";
 
@@ -93,12 +93,14 @@ export function SourceBadges({
   max = 4,
   label,
   notes,
+  noteFormat = "spoken",
   className = "",
 }: {
   codes: string[];
   max?: number;
   label?: string;
   notes?: Record<string, string | undefined>;
+  noteFormat?: "spoken" | "code";
   className?: string;
 }) {
   const visible = codes.slice(0, max);
@@ -108,7 +110,7 @@ export function SourceBadges({
       {label && <span className="text-[9px] uppercase tracking-wide text-ink-400">{label}</span>}
       {visible.map((code) => {
         const badge = SOURCE_BADGES[code] ?? { label: sourceLabel(code) || code, icon: "▪", cls: SOURCE_BADGE_NEUTRAL };
-        const note = ribbonTimeframeNote(notes?.[code]);
+        const note = (noteFormat === "code" ? ribbonTimeframeCodes : ribbonTimeframeNote)(notes?.[code]);
         const icon = code === "ema_ribbon" && note ? `BUY ${note}` : badge.icon;
         const text = note ? `${badge.label} ${note}` : badge.label;
         return (

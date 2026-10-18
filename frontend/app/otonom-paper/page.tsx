@@ -6,7 +6,6 @@ import { usePoll } from "../lib/hooks";
 import { livePrice, useSymbolPrices } from "../lib/livePrices";
 import { useAuth } from "../lib/auth";
 import { fmtDateTime, formatPrice, formatSignedTL, formatTL } from "../lib/format";
-import { ribbonTimeframeNote } from "../lib/sources";
 import { Badge, Card, EmptyState, SectionHeader, Skeleton, SourceBadges } from "../components/ui";
 
 type PaperTrade = {
@@ -215,7 +214,7 @@ function TradeTable({ rows, onClose }: { rows: PaperTrade[]; onClose?: (trade: P
                 <td className="py-2 pr-3 font-mono font-semibold text-ink-900">
                   <AppLink href={`/grafik?symbol=${encodeURIComponent(trade.symbol)}&interval=5m`} className="hover:text-accent" title={`${trade.symbol} grafiğini aç`}>{trade.symbol}</AppLink>
                 </td>
-                <td className="py-2 pr-3">{trade.trigger_source ? <SourceBadges codes={[trade.trigger_source]} notes={trade.trigger_timeframe && ribbonTimeframeNote(trade.trigger_timeframe) ? { [trade.trigger_source]: ribbonTimeframeNote(trade.trigger_timeframe) } : undefined} /> : <Badge tone="neutral">Kaynak yok</Badge>}</td>
+                <td className="py-2 pr-3">{trade.trigger_source ? <SourceBadges codes={[trade.trigger_source]} notes={trade.trigger_timeframe ? { [trade.trigger_source]: trade.trigger_timeframe } : undefined} noteFormat="code" /> : <Badge tone="neutral">Kaynak yok</Badge>}</td>
                 <td className="py-2 pr-3 font-mono text-xs text-ink-500">{fmtDateTime(trade.exit_time || trade.entry_time)}</td>
                 <td className="py-2 pr-3 text-right font-mono">{formatPrice(trade.entry_price)}</td>
                 <td className="py-2 pr-3 text-right font-mono">{formatPrice(mark)}</td>
