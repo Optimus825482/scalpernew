@@ -64,6 +64,7 @@ const SOURCE_BADGES: Record<string, SourceBadgeStyle> = {
   jump: { label: "MACD Sıçrama", icon: "⚡", cls: "border-violet-200 bg-violet-50 text-violet-700" },
   early: { label: "Erken Sıçrama", icon: "◷", cls: "border-violet-200 bg-violet-50/60 text-violet-600" },
   rising: { label: "Yükseliş", icon: "↗", cls: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+  ema_ribbon: { label: "EMA Kurdele", icon: "BUY", cls: "border-emerald-300 bg-emerald-600 text-white" },
   daily_momentum: { label: "Momentum", icon: "⇗", cls: "border-amber-200 bg-amber-50 text-amber-700" },
   short_squeeze: { label: "Squeeze", icon: "⇈", cls: "border-orange-200 bg-orange-50 text-orange-700" },
   pulse: {

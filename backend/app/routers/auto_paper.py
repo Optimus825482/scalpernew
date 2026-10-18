@@ -1048,21 +1048,20 @@ async def _manage_single_trade(trade: dict, now: float, breakeven_trigger_pct: f
         logger.warning("auto_paper %s: ticker BAYAT (yaş=%.1fs > %ss) — bu tur kâr/zarar muhasebesi yapılmıyor",
                        symbol, (now * 1000 - ticker_ts) / 1000.0, config.MAX_TICKER_AGE_SEC)
 
-    # 1. SÜRE KONTROLÜ (2026-09-21 Erkan kararı: Maksimum 60 dk):
-    # Fiyat bayat veya ticker boş olsa bile 60 dk dolmuşsa pozisyon kâr/zarara bakılmaksızın kapatılır.
+    # 1. SÜRE KONTROLÜ: 2 saat dolunca kâr/zarar ve fiyat tazeliği bakılmaz.
+    # Kayıtlı ayar daha uzunsa da 120 dakikayı geçemez. Bayat veya boş ticker
+    # kapanışı ertelemez; son fiyat, yoksa tepe, o da yoksa giriş kullanılır.
     entry_time = float(trade.get("entry_time") or trade.get("created_at") or 0)
     hold_minutes = (now - entry_time) / 60.0 if entry_time > 0 else 0.0
-    max_hold_minutes = float((settings or {}).get("max_hold_minutes", getattr(config, "AUTO_PAPER_MAX_HOLD_MINUTES", 120.0)))
-    if max_hold_minutes > 0 and hold_minutes >= max_hold_minutes:
-        # D-02: bayat/eksik fiyatla KAPANMA YAPILMAZ. Pozisyon bir sonraki
-        # tazelik turunda kapatılır (gerekirse peak_price fallback'i ile
-        # bilinçli olarak).
-        if not price_is_fresh:
-            logger.info("auto_paper %s: max_hold doldu ama fiyat bayat — kapanış ertelendi (%.1f dk)",
-                        symbol, hold_minutes)
-            return
-        exit_price = current_price if current_price > 0 else float(trade.get("peak_price") or entry_price)
-        logger.info("auto_paper %s: MAKSİMUM SÜRE DOLDU (%.1f dk >= %.1f dk) — pozisyon kapatılıyor (çıkış=%.6f)",
+    configured_hold = float((settings or {}).get("max_hold_minutes", getattr(config, "AUTO_PAPER_MAX_HOLD_MINUTES", 120.0)) or 0)
+    hard_cap = float(getattr(config, "AUTO_PAPER_MAX_HOLD_MINUTES", 120.0) or 120.0)
+    max_hold_minutes = hard_cap if configured_hold <= 0 else min(configured_hold, hard_cap)
+    if hold_minutes >= max_hold_minutes:
+        if current_price > 0:
+            exit_price = current_price
+        else:
+            exit_price = float(trade.get("peak_price") or entry_price)
+        logger.info("auto_paper %s: 2 saat doldu (%.1f dk >= %.1f dk) — kâr/zarara bakılmadan kapatılıyor (çıkış=%.6f)",
                     symbol, hold_minutes, max_hold_minutes, exit_price)
         await _close_trade(trade_id, symbol, exit_price, now, "max_duration")
         return
@@ -1541,6 +1540,55 @@ async def open_from_scan_candidates(candidates: list[dict]) -> int:
         if isinstance(result, dict) and result.get("status") == "opened":
             opened += 1
             logger.info("auto_paper tarama girişi: %s skor %.1f", symbol, score)
+    return opened
+
+
+async def open_ribbon_candidates(candidates: list[dict]) -> int:
+    """EMA kurdele kesişimine paper aç. Elle tarama bunu çağırmaz.
+
+    Skor, kayıtlı minimumun altına düşmez; böylece panel eşiği bu kesişimi
+    elemez. Açık pozisyon, nakit ve bekleme kapıları try_open içinde durur.
+    """
+    if not candidates:
+        return 0
+    settings = await get_auto_paper_settings()
+    if not settings.get("enabled", True):
+        return 0
+    min_score = float(settings.get("min_score", config.AUTO_PAPER_MIN_SCORE_DEFAULT))
+    opened = 0
+    seen: set[str] = set()
+    for raw in candidates:
+        if not raw.get("ribbon_bar_ms"):
+            continue
+        symbol = str(raw.get("symbol") or "").upper()
+        if not symbol or symbol in seen:
+            continue
+        seen.add(symbol)
+        if len(seen) > 5:
+            break
+        try:
+            score = float(raw.get("scan_score") or raw.get("quality_score") or 0)
+        except (TypeError, ValueError):
+            score = 0.0
+        score = max(score, min_score)
+        try:
+            price = float(raw.get("price") or 0)
+        except (TypeError, ValueError):
+            price = 0.0
+        result = await try_open_from_notification({
+            "symbol": symbol,
+            "score": score,
+            "price": price,
+            "target_pct": raw.get("target_pct"),
+            "horizon_minutes": raw.get("horizon_minutes") or 15,
+            "mode": "unified",
+            "passes": True,
+            "detected_at": time.time(),
+            "strategy": "ema_ribbon",
+        })
+        if isinstance(result, dict) and result.get("status") == "opened":
+            opened += 1
+            logger.info("auto_paper kurdele girişi: %s", symbol)
     return opened
 
 

@@ -266,9 +266,8 @@ class AutoPaperConfluenceAndProtectionTests(unittest.IsolatedAsyncioTestCase):
 class AutoPaperTimeoutAndPassivationTests(unittest.IsolatedAsyncioTestCase):
     """Maksimum süre (60 dk) aşımı ve sembol pasife alma testleri (2026-09-21 Erkan kuralı).
 
-    D-02 (2026-09-26): max_hold ve symbol_deactivated çıkışları artık TAZE
-    fiyat şartına bağlıdır — bayat/eksik ticker ile kapanış (uydurma fill
-    fiyatı) yapılmaz. Testler taze ticker sağlar.
+    Süre dolunca kapanış fiyat tazeliğine bağlı değildir. Stop ve hedef
+    yolları taze fiyat ister.
     """
 
     def _sample_trade(self, symbol="APTEST", entry_time=None, entry=100.0, peak=102.0):
@@ -344,8 +343,8 @@ class AutoPaperTimeoutAndPassivationTests(unittest.IsolatedAsyncioTestCase):
         close_mock.assert_not_awaited()
 
     # --- D-02: bayat fiyatla kapanış engellenir -----------------------------
-    async def test_max_hold_does_not_close_with_stale_ticker(self):
-        """60 dk dolmuş olsa bile BAYAT ticker fiyatıyla kapanma yapılmaz."""
+    async def test_max_hold_closes_with_stale_ticker(self):
+        """Süre dolunca bayat fiyat kapanışı ertelemez; son fiyatla kapanır."""
         now = time.time()
         trade = self._sample_trade(entry_time=now - 65 * 60)
         close_mock = AsyncMock(return_value=None)
@@ -356,7 +355,9 @@ class AutoPaperTimeoutAndPassivationTests(unittest.IsolatedAsyncioTestCase):
              patch.object(auto_paper, "_close_trade", close_mock):
             await auto_paper._manage_single_trade(trade, now, 1.5, {"max_hold_minutes": 60.0})
 
-        close_mock.assert_not_awaited()
+        close_mock.assert_awaited_once()
+        self.assertEqual(close_mock.await_args.args[2], 50.0)
+        self.assertEqual(close_mock.await_args.args[4], "max_duration")
 
     async def test_passive_symbol_does_not_close_with_stale_ticker(self):
         """Pasif sembol bayat fiyatla da kapatılmaz (aynı kural)."""
@@ -373,10 +374,10 @@ class AutoPaperTimeoutAndPassivationTests(unittest.IsolatedAsyncioTestCase):
 
         close_mock.assert_not_awaited()
 
-    async def test_missing_ticker_never_closes(self):
-        """Ticker hiç yoksa hiçbir çıkış yolu tetiklenmez."""
+    async def test_missing_ticker_still_closes_after_max_hold(self):
+        """Ticker yoksa süre dolunca tepe fiyatla kapanır."""
         now = time.time()
-        trade = self._sample_trade(entry_time=now - 65 * 60)
+        trade = self._sample_trade(entry_time=now - 65 * 60, peak=102.0)
         close_mock = AsyncMock(return_value=None)
         empty = MagicMock()
         empty.symbols = ["aptest"]
@@ -386,7 +387,9 @@ class AutoPaperTimeoutAndPassivationTests(unittest.IsolatedAsyncioTestCase):
              patch.object(auto_paper, "_close_trade", close_mock):
             await auto_paper._manage_single_trade(trade, now, 1.5, {"max_hold_minutes": 60.0})
 
-        close_mock.assert_not_awaited()
+        close_mock.assert_awaited_once()
+        self.assertEqual(close_mock.await_args.args[2], 102.0)
+        self.assertEqual(close_mock.await_args.args[4], "max_duration")
 
     # --- D-01: kâr kilidi stop'u orijinal stop'tan üstte olmalı -------------
     async def test_breakeven_stop_wins_over_lower_initial_stop(self):

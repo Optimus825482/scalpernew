@@ -1,0 +1,67 @@
+﻿tarama_zamani;surum;sembol;ufuk_dk;kaynaklar;fiyat;skor
+17.10.2026 23:57;combined-v1;USTCTRY;5;velocity;0.2701;80
+17.10.2026 23:57;combined-v1;USTCTRY;15;velocity;0.2701;80
+17.10.2026 23:57;combined-v1;SENTTRY;15;jump | early | rising | velocity | macd_mtf;1.072;71.4
+17.10.2026 23:57;combined-v1;SENTTRY;5;jump | early | rising | velocity | macd_mtf;1.072;67.4
+17.10.2026 23:57;combined-v1;ALTTRY;15;jump | early | velocity;0.465;65.4
+17.10.2026 23:57;combined-v1;ALTTRY;5;jump | early | velocity;0.465;63.4
+17.10.2026 23:57;combined-v1;NMRTRY;;jump | early | velocity | short_squeeze;611.9;57.9
+17.10.2026 23:57;combined-v1;LUNCTRY;5;velocity | macd_mtf;0.002413;56.4
+17.10.2026 23:57;combined-v1;LUNCTRY;15;velocity | macd_mtf;0.002413;56.4
+17.10.2026 23:57;combined-v1;LUNATRY;5;velocity | macd_mtf;2.239;50
+17.10.2026 23:57;combined-v1;LUNATRY;15;velocity | macd_mtf;2.239;50
+17.10.2026 23:57;combined-v1;SANDTRY;;velocity | short_squeeze;3.008;49.7
+17.10.2026 23:57;combined-v1;RSRTRY;;velocity | short_squeeze;0.1005;48.7
+17.10.2026 23:57;combined-v1;ZILTRY;;velocity | short_squeeze;0.1148;48.6
+17.10.2026 23:57;combined-v1;BLURTRY;;velocity | short_squeeze;0.504;46.2
+17.10.2026 23:57;combined-v1;NXPCTRY;;velocity | short_squeeze;8.22;45.9
+17.10.2026 23:57;combined-v1;MINATRY;;velocity | short_squeeze;3.7;45.7
+17.10.2026 23:57;combined-v1;STXTRY;;velocity | short_squeeze;18.52;42.7
+17.10.2026 23:57;combined-v1;OGNTRY;;velocity | short_squeeze;1.518;42.6
+17.10.2026 23:57;combined-v1;KSMTRY;;velocity | short_squeeze;216;42.5
+17.10.2026 23:57;combined-v1;MANATRY;;velocity | short_squeeze;4.4;42.4
+17.10.2026 23:57;combined-v1;AXLTRY;;velocity | short_squeeze;2.85;42.4
+17.10.2026 23:57;combined-v1;WLDTRY;;velocity | short_squeeze;25.01;42.4
+17.10.2026 23:57;combined-v1;XLMTRY;;velocity | short_squeeze;8.864;42.4
+17.10.2026 23:57;combined-v1;WTRY;;velocity | short_squeeze;0.692;42.4
+17.10.2026 23:57;combined-v1;OPTRY;;velocity | short_squeeze;6.56;42.4
+17.10.2026 23:57;combined-v1;TRUMPTRY;;velocity | short_squeeze;88.3;42.4
+17.10.2026 23:57;combined-v1;FILTRY;;velocity | short_squeeze;54.07;42.3
+17.10.2026 23:57;combined-v1;APTTRY;;velocity | short_squeeze;40.35;42.3
+17.10.2026 23:57;combined-v1;ERATRY;;velocity | short_squeeze;3.08;42
+17.10.2026 23:57;combined-v1;SANDTRY;5;velocity;3.008;39.6
+17.10.2026 23:57;combined-v1;SANDTRY;15;velocity;3.008;39.6
+17.10.2026 23:57;combined-v1;ERATRY;5;velocity;3.08;31.7
+17.10.2026 23:57;combined-v1;ERATRY;15;velocity;3.08;31.7
+17.10.2026 23:30;combined-v1;ALTTRY;15;jump | early | velocity;0.462;79.4
+17.10.2026 23:30;combined-v1;ALTTRY;5;jump | early | velocity;0.462;79.4
+17.10.2026 23:30;combined-v1;AXLTRY;5;jump | early | velocity;2.88;65
+17.10.2026 23:30;combined-v1;AXLTRY;15;jump | early | velocity;2.88;65
+17.10.2026 23:30;combined-v1;ERATRY;;jump | early | velocity | short_squeeze;3.08;58.1
+17.10.2026 23:30;combined-v1;RSRTRY;;jump | early | velocity | short_squeeze;0.0998;56.7
+17.10.2026 23:30;combined-v1;OGNTRY;5;velocity;1.527;49.9
+17.10.2026 23:30;combined-v1;OGNTRY;15;velocity;1.527;49.9
+17.10.2026 23:30;combined-v1;SANDTRY;;velocity | short_squeeze;3.013;49.7
+17.10.2026 23:30;combined-v1;USTCTRY;15;velocity | macd_mtf;0.2648;49.1
+17.10.2026 23:30;combined-v1;USTCTRY;5;velocity | macd_mtf;0.2658;49.1
+17.10.2026 23:30;combined-v1;ZILTRY;;velocity | short_squeeze;0.1138;48.4
+17.10.2026 23:30;combined-v1;BLURTRY;;velocity | short_squeeze;0.5;46
+17.10.2026 23:30;combined-v1;NXPCTRY;;velocity | short_squeeze;8.27;45.9
+17.10.2026 23:30;combined-v1;NMRTRY;;velocity | short_squeeze;613;45.9
+17.10.2026 23:30;combined-v1;AITRY;5;velocity;0.98;43.8
+17.10.2026 23:30;combined-v1;AITRY;15;velocity;0.98;43.8
+17.10.2026 23:30;combined-v1;MINATRY;;velocity | short_squeeze;3.7;42.7
+17.10.2026 23:30;combined-v1;STXTRY;;velocity | short_squeeze;18.54;42.6
+17.10.2026 23:30;combined-v1;OGNTRY;;velocity | short_squeeze;1.521;42.6
+17.10.2026 23:30;combined-v1;KSMTRY;;velocity | short_squeeze;216;42.6
+17.10.2026 23:30;combined-v1;MANATRY;;velocity | short_squeeze;4.41;42.4
+17.10.2026 23:30;combined-v1;FETTRY;;velocity | short_squeeze;9.58;42.4
+17.10.2026 23:30;combined-v1;WLDTRY;;velocity | short_squeeze;24.99;42.4
+17.10.2026 23:30;combined-v1;WTRY;;velocity | short_squeeze;0.6911;42.4
+17.10.2026 23:30;combined-v1;XLMTRY;;velocity | short_squeeze;8.856;42.4
+17.10.2026 23:30;combined-v1;OPTRY;;velocity | short_squeeze;6.54;42.4
+17.10.2026 23:30;combined-v1;TRUMPTRY;;velocity | short_squeeze;88.3;42.4
+17.10.2026 23:30;combined-v1;FILTRY;;velocity | short_squeeze;53.94;42.4
+17.10.2026 23:30;combined-v1;APTTRY;;velocity | short_squeeze;40.3;42.3
+17.10.2026 23:30;combined-v1;MUBARAKTRY;15;velocity;2.81;39.3
+17.10.2026 23:30;combined-v1;MUBARAKTRY;5;velocity;2.811;39.3

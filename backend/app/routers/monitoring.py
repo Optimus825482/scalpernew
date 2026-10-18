@@ -4305,9 +4305,59 @@ async def unified_scan_latest(request: Request):
                      "count": len(candidates)}}
 
 
+_ribbon_notified: dict[str, int] = {}
+
+
+async def _persist_ribbon_notifications(candidates: list) -> None:
+    """Yeni kurdele kesişimini bildirim geçmişine bir kez yazar.
+
+    Elle tarama bu fonksiyonu çağırmaz. Aynı mum tekrar yazılmaz.
+    """
+    fresh: list[dict] = []
+    for row in candidates or []:
+        try:
+            bar_ms = int(row.get("ribbon_bar_ms") or 0)
+        except (TypeError, ValueError):
+            bar_ms = 0
+        if bar_ms <= 0:
+            continue
+        symbol = str(row.get("symbol") or "").upper()
+        if not symbol or _ribbon_notified.get(symbol) == bar_ms:
+            continue
+        _ribbon_notified[symbol] = bar_ms
+        try:
+            price = float(row.get("price") or 0)
+            target = float(row.get("target_pct") or 0)
+            score = float(row.get("scan_score") or 75)
+        except (TypeError, ValueError):
+            continue
+        fresh.append({
+            "symbol": symbol,
+            "title": "EMA Kurdele AL",
+            "message": "EMA 7, EMA 20'yi EMA 99 üzerinde yukarı kesti",
+            "score": score,
+            "target_pct": target,
+            "price": price,
+            "expected_price": round(price * (1 + target / 100.0), 8) if price > 0 and target else None,
+            "horizon_minutes": row.get("horizon_minutes") or 15,
+            "mode": "ema_ribbon",
+            "detected_at": bar_ms / 1000.0,
+            "sources": ["ema_ribbon"],
+            "candidate_id": f"ema-ribbon-{symbol}-{bar_ms}",
+        })
+    if not fresh:
+        return
+    try:
+        await database.save_monitoring_notifications(fresh)
+    except Exception as exc:
+        logger.debug("ema kurdele bildirimi yazılamadı: %s", exc)
+
+
 async def _open_paper_after_scan(candidates: list) -> None:
     try:
-        from app.routers.auto_paper import open_from_scan_candidates
+        await _persist_ribbon_notifications(candidates)
+        from app.routers.auto_paper import open_from_scan_candidates, open_ribbon_candidates
+        await open_ribbon_candidates(candidates)
         await open_from_scan_candidates(candidates)
     except Exception as exc:
         logger.debug("tarama sonrası paper açılışı: %s", exc)

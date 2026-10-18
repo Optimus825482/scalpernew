@@ -103,6 +103,21 @@ function ema(values: number[], period: number): Array<number | null> {
   return output;
 }
 
+function ribbonBuyIndexes(candles: Candle[], fast: Array<number | null>, mid: Array<number | null>, slow: Array<number | null>): number[] {
+  const hits: number[] = [];
+  const lastClosed = candles.length - 1;
+  for (let index = 1; index < lastClosed; index += 1) {
+    const prevFast = fast[index - 1];
+    const prevMid = mid[index - 1];
+    const currFast = fast[index];
+    const currMid = mid[index];
+    const currSlow = slow[index];
+    if (prevFast == null || prevMid == null || currFast == null || currMid == null || currSlow == null) continue;
+    if (prevFast <= prevMid && currFast > currMid && currFast > currSlow && currMid > currSlow) hits.push(index);
+  }
+  return hits;
+}
+
 function wilderRsi(closes: number[], period: number): Array<number | null> {
   const rsi: Array<number | null> = Array(closes.length).fill(null);
   const gains: number[] = [];
@@ -252,6 +267,7 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
   const [config, setConfig] = useState<IndicatorConfig>(DEFAULT_CONFIG);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [signalMarks, setSignalMarks] = useState<SignalMark[]>([]);
+  const [buyMarks, setBuyMarks] = useState<Array<{ time: number; x: number; y: number }>>([]);
   const [loadedConfigKey, setLoadedConfigKey] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const subContainerRef = useRef<HTMLDivElement>(null);
@@ -635,6 +651,32 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
     }
   }, [candles, config.enabled, ready, signalMarks, values]);
 
+  useEffect(() => {
+    const chart = chartRef.current;
+    const series = candleSeriesRef.current;
+    if (!ready || !chart || !series || !config.enabled.includes("ema3")) {
+      setBuyMarks([]);
+      return;
+    }
+    const place = () => {
+      const hits = ribbonBuyIndexes(candles, values.ema7, values.ema20, values.ema99);
+      const next: Array<{ time: number; x: number; y: number }> = [];
+      for (const index of hits) {
+        const candle = candles[index];
+        if (!candle) continue;
+        const x = chart.timeScale().timeToCoordinate(candle.time as UTCTimestamp);
+        const y = series.priceToCoordinate(candle.low);
+        if (x == null || y == null || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+        next.push({ time: candle.time, x, y: y + 6 });
+      }
+      setBuyMarks(next.slice(-40));
+    };
+    place();
+    const scale = chart.timeScale();
+    scale.subscribeVisibleLogicalRangeChange(place);
+    return () => scale.unsubscribeVisibleLogicalRangeChange(place);
+  }, [candles, config.enabled, isFullscreen, ready, values]);
+
   const filteredSymbols = useMemo(() => {
     const query = normalizeSymbol(search);
     return query.length < 2 ? [] : symbols.filter((item) => normalizeSymbol(item).includes(query)).sort((a, b) => Number(normalizeSymbol(b).startsWith(query)) - Number(normalizeSymbol(a).startsWith(query))).slice(0, 12);
@@ -675,8 +717,8 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
             </span>
           </div>
         )}
-        {signalMarks.length > 0 && (
-          <span className="text-[10px] font-medium text-ink-500">son bildirim · son hedef · yeşil ok Stoch 20 altı yukarı kesişim · kırmızı ok 80 üstü aşağı kesişim</span>
+        {(signalMarks.length > 0 || config.enabled.includes("ema3")) && (
+          <span className="text-[10px] font-medium text-ink-500">son bildirim · son hedef · yeşil BUY: EMA 7 EMA 20’yi EMA 99 üstünde yukarı kesince · Stoch 20 altı yeşil ok, 80 üstü kırmızı ok</span>
         )}
       </div>
 
@@ -741,13 +783,25 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
         return <span key={id} className="rounded-md border border-line bg-white px-2 py-1 font-mono text-ink-600">{label}{extra}</span>;
       })}
     </div>
-    <div
-      ref={containerRef}
-      style={{ height: isFullscreen ? `${fullscreenHeight}px` : undefined }}
-      className={`w-full overflow-hidden rounded-t-lg bg-white ${
-        isFullscreen ? "" : compact ? "h-[230px]" : "h-[360px]"
-      }`}
-    />
+    <div className="relative">
+      <div
+        ref={containerRef}
+        style={{ height: isFullscreen ? `${fullscreenHeight}px` : undefined }}
+        className={`w-full overflow-hidden rounded-t-lg bg-white ${
+          isFullscreen ? "" : compact ? "h-[230px]" : "h-[360px]"
+        }`}
+      />
+      {buyMarks.length > 0 && (
+        <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden" aria-hidden>
+          {buyMarks.map((mark) => (
+            <span key={mark.time} className="absolute flex -translate-x-1/2 flex-col items-center" style={{ left: mark.x, top: mark.y }}>
+              <span className="block h-0 w-0 border-x-[7px] border-b-[7px] border-x-transparent border-b-[#089981]" />
+              <span className="-mt-px rounded-[3px] bg-[#089981] px-1.5 py-[3px] text-[10px] font-extrabold leading-none tracking-wide text-white shadow-sm">BUY</span>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
     <div
       ref={subContainerRef}
       className={`w-full overflow-hidden rounded-b-lg border-t border-line/70 ${

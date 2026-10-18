@@ -139,6 +139,32 @@ def _source_ids(item: dict) -> list[str]:
     return [str(source)] if source else []
 
 
+def _merge_ribbon_candidates(out: list[dict]) -> None:
+    """Kapanmış 5m EMA kurdele alımını aday listesine ekler. Kayıt yazmaz."""
+    try:
+        from app.ema_ribbon import ribbon_candidates
+        hits = ribbon_candidates()
+    except Exception as exc:
+        logger.debug("ema kurdele taraması atlandı: %s", exc)
+        return
+    by_symbol = {str(row.get("symbol") or "").upper(): row for row in out}
+    for hit in hits:
+        symbol = str(hit.get("symbol") or "").upper()
+        current = by_symbol.get(symbol)
+        if current is None:
+            out.append(hit)
+            by_symbol[symbol] = hit
+            continue
+        sources = list(dict.fromkeys(list(current.get("signal_sources") or []) + ["ema_ribbon"]))
+        current["signal_sources"] = sources
+        current["unified_sources"] = list(dict.fromkeys(list(current.get("unified_sources") or []) + ["ema_ribbon"]))
+        current["scan_score"] = max(float(current.get("scan_score") or 0), float(hit.get("scan_score") or 0))
+        current["quality_score"] = current["scan_score"]
+        current["ribbon_bar_ms"] = hit.get("ribbon_bar_ms")
+        if not current.get("target_pct"):
+            current["target_pct"] = hit.get("target_pct")
+
+
 def _is_both(candidate: dict) -> bool:
     strategy = str(candidate.get("strategy") or "")
     sources = candidate.get("signal_sources") or []
@@ -442,6 +468,8 @@ async def combined_scan_rows() -> list[dict]:
             "_hit": hit,
         }
         out.append(row)
+
+    _merge_ribbon_candidates(out)
 
     out.sort(key=lambda r: (float(r.get("scan_score") or 0), _is_both(r),
                             (r.get("radar") or {}).get("book_imbalance") or 0.0),

@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import AppLink from "./components/AppLink";
 import { apiRequest } from "./lib/api";
 import { usePoll } from "./lib/hooks";
 import { toOpportunityView, type OpportunityView } from "./lib/opportunity";
 import { useWatchlist } from "./lib/watchlist";
 import { fmtDateTime } from "./lib/format";
-import { useLivePrices } from "./lib/livePrices";
+import { rememberScan, useLivePrices } from "./lib/livePrices";
 import type { ManualUnifiedScanResponse, UnifiedScanResponse, UnifiedScanRun } from "./lib/types";
 import { Badge, Card, SectionHeader, Tabs } from "./components/ui";
 import PortfolioStrip from "./components/PortfolioStrip";
@@ -17,7 +18,10 @@ import ActiveTradesTable from "./components/ActiveTradesTable";
 import PaperTrades from "./components/PaperTrades";
 import OrderPanel from "./components/OrderPanel";
 import LiveNotificationToast from "./components/LiveNotificationToast";
-import MarketChart from "./components/MarketChart";
+const MarketChart = dynamic(() => import("./components/MarketChart"), {
+  ssr: false,
+  loading: () => <div className="h-[360px] animate-pulse rounded-xl bg-canvas" />,
+});
 
 type HorizonFilter = "all" | "favorites" | "5" | "15";
 type LayoutMode = "cards" | "terminal";
@@ -123,6 +127,11 @@ export default function Home() {
   );
 
   const generatedAt = Number(run?.completed_at ?? run?.generated_at ?? 0);
+  const scanKey = String(run?.scan_id || generatedAt || "");
+  useMemo(() => {
+    if (!scanKey) return;
+    rememberScan(scanKey, views.map((item) => ({ symbol: item.symbol, price: item.price })));
+  }, [scanKey, views]);
   const stale = generatedAt > 0 && Date.now() / 1000 - generatedAt > 120;
   const loadingFirst = scan.loading && !run;
 
@@ -412,7 +421,7 @@ export default function Home() {
           <SectionHeader
             eyebrow="Portföy & Pozisyonlar"
             title="Aktif Binance TR Varlıkları"
-            description="Cüzdandaki açık coin bakiyeleri, anlık kâr/zarar ve maliyet durumu."
+            description="Cüzdandaki açık coin bakiyeleri, anlık kâr/zarar ve maliyet durumu. 50 TL altındaki tutarlar listelenmez."
             actions={<AppLink href="/gecmis-islemler" className="rounded-lg border border-line px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent-soft">İşlem Geçmişi →</AppLink>}
           />
           <div className="mt-4">

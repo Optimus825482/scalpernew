@@ -13,6 +13,7 @@ const SOURCE_LABELS: Record<string, string> = {
   jump: "MACD Sıçrama",
   early: "Erken Sıçrama",
   rising: "Yükseliş Eğilimi",
+  ema_ribbon: "EMA Kurdele",
   daily_momentum: "Günlük Momentum",
   short_squeeze: "Short Squeeze",
   both: "Momentum+Squeeze",

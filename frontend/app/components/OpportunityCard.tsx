@@ -1,14 +1,19 @@
 "use client";
 
 import { memo, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import AppLink from "./AppLink";
 import { formatPct, formatPrice } from "../lib/format";
 import type { OpportunityView } from "../lib/opportunity";
 import { useWatchlist } from "../lib/watchlist";
 import { usePriceWatch } from "../lib/priceWatch";
-import { elapsedLabel, signalBasePrice, signalPeakPrice, signalSeenAt } from "../lib/livePrices";
+import { elapsedLabel, readSignal, touchPeak, type SignalMark } from "../lib/livePrices";
 import { SourceBadges } from "./ui";
-import MarketChart from "./MarketChart";
+
+const MarketChart = dynamic(() => import("./MarketChart"), {
+  ssr: false,
+  loading: () => <div className="h-[230px] animate-pulse rounded-lg bg-canvas" />,
+});
 
 function chartInterval(minutes: number | null) {
   return minutes != null && minutes >= 60 ? "1h" : "5m";
@@ -33,9 +38,7 @@ function OpportunityCard({
   const [chartOpen, setChartOpen] = useState(false);
   const [quickMenuOpen, setQuickMenuOpen] = useState(false);
   const [nowSec, setNowSec] = useState(() => Date.now() / 1000);
-  const [seenAt, setSeenAt] = useState<number | null>(null);
-  const [basePrice, setBasePrice] = useState<number | null>(null);
-  const [peakPrice, setPeakPrice] = useState<number | null>(null);
+  const [mark, setMark] = useState<SignalMark | null>(() => readSignal(item.symbol));
   const { isFavorite, toggleFavorite } = useWatchlist();
   const { entries, watch, unwatch, isWatched } = usePriceWatch();
 
@@ -43,18 +46,21 @@ function OpportunityCard({
   const watched = isWatched(item.symbol);
   const watchEntry = entries.find((entry) => entry.symbol === item.symbol);
   const shownPrice = livePrice != null && livePrice > 0 ? livePrice : price;
-  const signalPrice = basePrice ?? price;
-  const livePct = signalPrice != null && shownPrice != null && signalPrice > 0
-    ? ((shownPrice - signalPrice) / signalPrice) * 100
+  const noticePrice = mark?.noticePrice ?? price;
+  const livePct = noticePrice != null && shownPrice != null && noticePrice > 0
+    ? ((shownPrice - noticePrice) / noticePrice) * 100
+    : null;
+  const chainPct = mark && mark.chainBase > 0 && shownPrice != null
+    ? ((shownPrice - mark.chainBase) / mark.chainBase) * 100
     : null;
   const watchPct = watchEntry && shownPrice != null && watchEntry.price > 0
     ? ((shownPrice - watchEntry.price) / watchEntry.price) * 100
     : null;
   const targetPct = item.targetPct ?? potentialPct;
-  const targetPrice = signalPrice != null && targetPct != null
-    ? signalPrice * (1 + targetPct / 100)
+  const targetPrice = noticePrice != null && targetPct != null
+    ? noticePrice * (1 + targetPct / 100)
     : null;
-  const peak = Math.max(peakPrice ?? 0, shownPrice ?? 0);
+  const peak = Math.max(mark?.peak ?? 0, shownPrice ?? 0);
   const targetHit = targetPrice != null && peak >= targetPrice;
   const interval = chartInterval(horizonMinutes);
   const chartUrl = `/grafik?symbol=${encodeURIComponent(item.symbol)}&interval=${interval}`;
@@ -70,12 +76,7 @@ function OpportunityCard({
         : { ring: "border-line", text: "text-ink-700", bg: "bg-canvas", label: "text-ink-400" };
 
   useEffect(() => {
-    setSeenAt(signalSeenAt(item.symbol, item.createdAt));
-    setBasePrice(signalBasePrice(item.symbol, price));
-  }, [item.symbol, item.createdAt, price]);
-
-  useEffect(() => {
-    setPeakPrice(signalPeakPrice(item.symbol, shownPrice ?? price));
+    setMark(touchPeak(item.symbol, shownPrice ?? price) ?? readSignal(item.symbol));
   }, [item.symbol, shownPrice, price]);
 
   useEffect(() => {
@@ -198,13 +199,25 @@ function OpportunityCard({
           {item.sourceEvidence.return_1m_pct != null && <p className="mt-1 text-[10px] text-ink-500">Nabız kanıtı: 1 dk {formatPct(Number(item.sourceEvidence.return_1m_pct), 2)} · hacim {Number(item.sourceEvidence.volume_burst ?? 0).toFixed(1)}×</p>}
           {item.scoreComponents.length > 0 && <p className="mt-1 text-[10px] text-ink-400">Skor kanıtı: {item.scoreComponents.map(({ label, value }) => `${label} ${Math.round(value)}`).join(" · ")}</p>}
           <p className="mt-2 text-[11px] leading-snug text-ink-600">
-            Bildirimden beri <span className="font-mono font-semibold text-ink-800">{seenAt == null ? "…" : elapsedLabel(nowSec - seenAt)}</span>
-            {" · "}
-            anlık{" "}
-            <span className={`font-mono font-semibold ${livePct == null ? "text-ink-500" : livePct >= 0 ? "text-gain" : "text-loss"}`}>
-              {livePct == null ? "—" : `${livePct >= 0 ? "+" : ""}${livePct.toFixed(2)}%`}
-            </span>
-            {" · "}
+            {mark?.continued ? (
+              <>
+                İlk bildirimden beri <span className="font-mono font-semibold text-ink-800">{elapsedLabel(nowSec - mark.chainAt)}</span>
+                {" · zincir "}
+                <span className={`font-mono font-semibold ${chainPct == null ? "text-ink-500" : chainPct >= 0 ? "text-gain" : "text-loss"}`}>
+                  {chainPct == null ? "—" : `${chainPct >= 0 ? "+" : ""}${chainPct.toFixed(2)}%`}
+                </span>
+                {" · bu bildirim "}
+              </>
+            ) : (
+              <>
+                Bildirimden beri <span className="font-mono font-semibold text-ink-800">{mark ? elapsedLabel(nowSec - mark.noticeAt) : "şimdi"}</span>
+                {" · anlık "}
+                <span className={`font-mono font-semibold ${livePct == null ? "text-ink-500" : livePct >= 0 ? "text-gain" : "text-loss"}`}>
+                  {livePct == null ? "—" : `${livePct >= 0 ? "+" : ""}${livePct.toFixed(2)}%`}
+                </span>
+                {" · "}
+              </>
+            )}
             <span className={targetHit ? "font-semibold text-gain" : "text-ink-500"}>
               {targetPrice == null ? "hedef yok" : targetHit ? "hedefe ulaştı" : `hedefe ulaşmadı (${formatPrice(targetPrice)})`}
             </span>

@@ -40,66 +40,108 @@ export function useLivePrices(symbols: string[], intervalMs = 10_000): Record<st
   return prices;
 }
 
-/** Kartın ilk görüldüğü an. Tarama her turda detected_at'i yenilediği için saat oturumda sabitlenir. */
-export function signalSeenAt(symbol: string, serverTs: number | null): number {
+type ChainMark = { at: number; base: number };
+type NoticeMark = { price: number; peak: number; at: number };
+type ScanBook = {
+  scanId: string;
+  symbols: string[];
+  chains: Record<string, ChainMark>;
+  notices: Record<string, NoticeMark>;
+};
+
+const BOOK_KEY = "odak_signal_book";
+
+export type SignalMark = {
+  chainAt: number;
+  chainBase: number;
+  noticeAt: number;
+  noticePrice: number;
+  peak: number;
+  continued: boolean;
+};
+
+function emptyBook(): ScanBook {
+  return { scanId: "", symbols: [], chains: {}, notices: {} };
+}
+
+function loadBook(): ScanBook {
+  try {
+    const raw = sessionStorage.getItem(BOOK_KEY);
+    if (!raw) return emptyBook();
+    const parsed = JSON.parse(raw) as ScanBook;
+    if (!parsed || typeof parsed !== "object" || !parsed.notices) return emptyBook();
+    return parsed;
+  } catch {
+    return emptyBook();
+  }
+}
+
+function saveBook(book: ScanBook) {
+  try {
+    sessionStorage.setItem(BOOK_KEY, JSON.stringify(book));
+  } catch {
+    // Oturum deposu kapalıysa bu tur bellekte kalmaz; kart yine kendi fiyatını kullanır.
+  }
+}
+
+/**
+ * Yeni tarama listesini işler.
+ * Sembol bir önceki listede de varsa zincir (ilk saat ve ilk fiyat) sürer.
+ * Listeden çıkıp dönen sembolde zincir kopar.
+ * Hedef her tarama bildiriminin kendi fiyatından başlar; eski zirve taşınmaz.
+ */
+export function rememberScan(scanId: string, rows: Array<{ symbol: string; price: number | null }>) {
+  const id = String(scanId || "");
+  if (!id) return;
+  const book = loadBook();
+  if (book.scanId === id) return;
+  const previous = new Set(book.symbols);
   const now = Date.now() / 1000;
-  const key = `odak_signal_seen:${symbol}`;
-  let stored = 0;
-  try {
-    stored = Number(sessionStorage.getItem(key) || 0);
-  } catch {
-    stored = 0;
+  const chains: Record<string, ChainMark> = {};
+  const notices: Record<string, NoticeMark> = {};
+  const symbols: string[] = [];
+  for (const row of rows) {
+    const symbol = String(row.symbol || "").toUpperCase();
+    const price = Number(row.price);
+    if (!symbol || !Number.isFinite(price) || price <= 0) continue;
+    symbols.push(symbol);
+    const chain = previous.has(symbol) ? book.chains[symbol] : undefined;
+    chains[symbol] = chain ?? { at: now, base: price };
+    notices[symbol] = { price, peak: price, at: now };
   }
-  const server = serverTs && serverTs > 1_000_000_000 ? (serverTs > 1e12 ? serverTs / 1000 : serverTs) : 0;
-  if (stored > 0 && (!server || now - server < 90 || Math.abs(server - stored) < 20 * 60)) return stored;
-  const start = server && now - server >= 90 ? server : now;
-  try {
-    sessionStorage.setItem(key, String(start));
-  } catch {
-    // Oturum deposu kapalıysa saat yine de bu tur için döner.
-  }
-  return start;
+  saveBook({ scanId: id, symbols, chains, notices });
 }
 
-/** Bildirim anındaki fiyat. Sonraki taramalar tabanı kaydırmaz. */
-export function signalBasePrice(symbol: string, price: number | null): number | null {
-  const key = `odak_signal_price:${symbol}`;
-  let stored = 0;
-  try {
-    stored = Number(sessionStorage.getItem(key) || 0);
-  } catch {
-    stored = 0;
-  }
-  if (stored > 0) return stored;
-  if (price == null || !Number.isFinite(price) || price <= 0) return null;
-  try {
-    sessionStorage.setItem(key, String(price));
-  } catch {
-    // Depo kapalıysa bu turdaki fiyat taban kabul edilir.
-  }
-  return price;
+export function readSignal(symbol: string): SignalMark | null {
+  const key = symbol.toUpperCase();
+  const book = loadBook();
+  const chain = book.chains[key];
+  const notice = book.notices[key];
+  if (!chain || !notice) return null;
+  return {
+    chainAt: chain.at,
+    chainBase: chain.base,
+    noticeAt: notice.at,
+    noticePrice: notice.price,
+    peak: notice.peak,
+    continued: chain.at + 2 < notice.at,
+  };
 }
 
-/** Bildirimden sonraki en yüksek görülen fiyat. Geri çekilse de hedef tutmuş sayılır. */
-export function signalPeakPrice(symbol: string, price: number | null): number | null {
-  const key = `odak_signal_peak:${symbol}`;
-  let stored = 0;
-  try {
-    stored = Number(sessionStorage.getItem(key) || 0);
-  } catch {
-    stored = 0;
+/** Bu bildirimin zirvesini canlı fiyatla günceller. Eski bildirimin zirvesini kullanmaz. */
+export function touchPeak(symbol: string, price: number | null): SignalMark | null {
+  const key = symbol.toUpperCase();
+  const seen = Number(price);
+  const book = loadBook();
+  const notice = book.notices[key];
+  const chain = book.chains[key];
+  if (!notice || !chain) return null;
+  if (Number.isFinite(seen) && seen > notice.peak) {
+    notice.peak = seen;
+    book.notices[key] = notice;
+    saveBook(book);
   }
-  const seen = price != null && Number.isFinite(price) && price > 0 ? price : 0;
-  const next = Math.max(stored, seen);
-  if (!(next > 0)) return null;
-  if (next !== stored) {
-    try {
-      sessionStorage.setItem(key, String(next));
-    } catch {
-      // Depo kapalıysa bu turdaki zirve yine döner.
-    }
-  }
-  return next;
+  return readSignal(key);
 }
 
 export function elapsedLabel(seconds: number): string {

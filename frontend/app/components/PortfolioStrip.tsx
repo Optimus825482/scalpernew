@@ -2,6 +2,7 @@
 
 import { usePoll } from "../lib/hooks";
 import { formatPct, formatTL } from "../lib/format";
+import { isVisibleHolding } from "../lib/holdings";
 import type { BinancePositions, BinanceSettings } from "../lib/types";
 
 type BinanceDayTrades = { daily?: { realized_pnl_try?: number | null } };
@@ -44,7 +45,7 @@ export default function PortfolioStrip() {
     {
       label: "Toplam Portföy",
       value: totalValue != null ? formatTL(totalValue) : "…",
-      detail: `${(realPositions.data?.holdings || []).filter((h) => h.asset !== "TRY" && Number(h.total) > 0).length} açık varlık`,
+      detail: `${(realPositions.data?.holdings || []).filter(isVisibleHolding).length} açık varlık`,
       valueTone: "text-ink-900",
     },
     {

@@ -5,7 +5,7 @@ import AppLink from "../components/AppLink";
 import { apiRequest } from "../lib/api";
 import { usePoll } from "../lib/hooks";
 import { formatPct, fmtDateTime, formatPrice } from "../lib/format";
-import { elapsedLabel, signalBasePrice, signalPeakPrice, signalSeenAt, useLivePrices } from "../lib/livePrices";
+import { elapsedLabel, readSignal, rememberScan, touchPeak, useLivePrices } from "../lib/livePrices";
 import { baseAsset, toOpportunityView } from "../lib/opportunity";
 import { sourceLabel } from "../lib/sources";
 import { useWatchlist } from "../lib/watchlist";
@@ -88,6 +88,19 @@ export default function FirsatlarPage() {
       setManualBusy(false);
     }
   }
+
+  const scanKey = String(run?.scan_id || run?.completed_at || run?.generated_at || "");
+  useMemo(() => {
+    if (!scanKey) return;
+    const seen = new Map<string, number | null>();
+    for (const candidate of run?.candidates || []) {
+      const symbol = String(candidate.symbol || "").toUpperCase();
+      const price = Number(candidate.price ?? candidate.current_price);
+      if (!symbol) continue;
+      if (!seen.has(symbol)) seen.set(symbol, Number.isFinite(price) ? price : null);
+    }
+    rememberScan(scanKey, Array.from(seen, ([symbol, price]) => ({ symbol, price })));
+  }, [scanKey, run]);
 
   const live = useMemo(() => {
     const now = Date.now() / 1000;
@@ -204,6 +217,12 @@ function LiveFeed({
     const timer = window.setInterval(() => setNowSec(Date.now() / 1000), 15_000);
     return () => window.clearInterval(timer);
   }, []);
+  useEffect(() => {
+    for (const row of rows) {
+      const live = prices[row.view.symbol];
+      touchPeak(row.view.symbol, live != null && live > 0 ? live : row.view.price);
+    }
+  }, [rows, prices]);
 
   if (loading) return <Skeleton className="h-64" />;
   if (error && rows.length === 0)
@@ -237,13 +256,14 @@ function LiveFeed({
               const fav = isFavorite(view.symbol);
               const live = prices[view.symbol];
               const shown = live != null && live > 0 ? live : view.price;
-              const base = signalBasePrice(view.symbol, view.price) ?? view.price;
+              const mark = readSignal(view.symbol);
+              const base = mark?.noticePrice ?? view.price;
               const livePct = base != null && shown != null && base > 0 ? ((shown - base) / base) * 100 : null;
               const targetPct = view.targetPct ?? view.potentialPct;
               const targetPrice = base != null && targetPct != null ? base * (1 + targetPct / 100) : null;
-              const peak = signalPeakPrice(view.symbol, shown) ?? shown;
-              const hit = targetPrice != null && peak != null && peak >= targetPrice;
-              const seen = signalSeenAt(view.symbol, view.createdAt);
+              const peak = Math.max(mark?.peak ?? 0, shown ?? 0);
+              const hit = targetPrice != null && peak >= targetPrice;
+              const seen = mark?.noticeAt ?? nowSec;
               return (
                 <tr key={`${view.symbol}-${view.horizonMinutes ?? 5}-${kind}-${i}`} className="border-t border-line hover:bg-slate-50/50">
                   <td className="py-2.5 pr-2">

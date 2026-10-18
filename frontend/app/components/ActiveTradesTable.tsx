@@ -3,6 +3,7 @@
 import AppLink from "./AppLink";
 import { usePoll } from "../lib/hooks";
 import { formatFixed, formatPct, formatPrice, formatSignedTL } from "../lib/format";
+import { isVisibleHolding } from "../lib/holdings";
 import type { BinancePositions, BinanceSettings } from "../lib/types";
 import { useWatchlist } from "../lib/watchlist";
 import { Badge, EmptyState, Skeleton } from "./ui";
@@ -21,7 +22,8 @@ export default function ActiveTradesTable({
   const account = usePoll<BinancePositions>(settings.data?.configured ? "/api/binance/positions" : null, 20_000);
   const { isFavorite, toggleFavorite } = useWatchlist();
 
-  const holdings = (account.data?.holdings || []).filter((h) => h.asset !== "TRY" && Number(h.total) > 0).slice(0, limit);
+  const coins = (account.data?.holdings || []).filter((h) => h.asset !== "TRY" && Number(h.total) > 0);
+  const holdings = coins.filter(isVisibleHolding).slice(0, limit);
 
   if (!settings.data?.configured && !settings.loading)
     return (
@@ -33,7 +35,7 @@ export default function ActiveTradesTable({
   if (settings.loading || (account.loading && !account.data)) return <Skeleton className="h-40" />;
   if (account.error && !account.data) return <EmptyState title="Binance TR varlıkları alınamadı" hint={account.error} tone="loss" />;
   if (holdings.length === 0)
-    return <EmptyState title="Açık varlık yok" hint="Bağlı Binance TR hesabında takip edilecek coin bakiyesi bulunmuyor." />;
+    return <EmptyState title="Açık varlık yok" hint={coins.length > 0 ? "50 TL altındaki bakiyeler gizlendi." : "Bağlı Binance TR hesabında takip edilecek coin bakiyesi bulunmuyor."} />;
 
   return (
     <div className="odak-scroll">
