@@ -41,7 +41,7 @@ type PaperStats = {
     open?: number;
     closed?: number;
     win_rate?: number;
-    by_source?: Array<{ source: string; closed: number; winning: number; win_rate: number; total_pnl_try: number }>;
+    by_source?: Array<{ source: string; timeframe?: string | null; closed: number; winning: number; win_rate: number; total_pnl_try: number }>;
   };
 };
 
@@ -130,7 +130,7 @@ export default function OtonomPaperPage() {
 
       {(stats?.by_source?.length ?? 0) > 0 && (
         <Card className="p-4">
-          <SectionHeader eyebrow="Kaynak" title="Kaynağa göre başarı" description="Kapanan otonom işlemler, açılışı tetikleyen sinyale göre." />
+          <SectionHeader eyebrow="Kaynak" title="Kaynağa göre başarı" description="Kapanan otonom işlemler, açılışı tetikleyen sinyale göre. EMA Kurdele zaman dilimine ayrılır." />
           <div className="odak-scroll mt-3">
             <table className="w-full min-w-[520px] border-collapse text-sm">
               <thead>
@@ -144,8 +144,8 @@ export default function OtonomPaperPage() {
               </thead>
               <tbody>
                 {stats?.by_source?.map((row) => (
-                  <tr key={row.source} className="border-t border-line">
-                    <td className="py-2 pr-3"><SourceBadges codes={[row.source]} /></td>
+                  <tr key={`${row.source}:${row.timeframe || ""}`} className="border-t border-line">
+                    <td className="py-2 pr-3"><SourceBadges codes={[row.source]} notes={row.timeframe ? { [row.source]: row.timeframe } : undefined} noteFormat="code" /></td>
                     <td className="py-2 pr-3 text-right font-mono">{row.closed}</td>
                     <td className="py-2 pr-3 text-right font-mono">{row.winning}</td>
                     <td className={`py-2 pr-3 text-right font-mono ${row.win_rate >= 50 ? "text-gain" : "text-ink-700"}`}>%{row.win_rate.toFixed(1)}</td>

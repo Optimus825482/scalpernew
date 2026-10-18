@@ -6981,27 +6981,41 @@ def _auto_paper_source_stats(conn, cutoff, until, confluence_4way_only: bool) ->
         where += " AND t.confluence_4way = TRUE"
     rows = conn.execute(
         f"""SELECT COALESCE(NULLIF(t.trigger_source, ''), NULLIF(n.mode, ''), 'bilinmiyor') AS source,
+                   CASE
+                     WHEN COALESCE(NULLIF(t.trigger_source, ''), NULLIF(n.mode, ''), '') = 'ema_ribbon'
+                     THEN NULLIF(split_part(COALESCE(t.trigger_timeframe, ''), ',', 1), '')
+                     ELSE ''
+                   END AS timeframe,
                    COUNT(*) AS closed,
                    COALESCE(SUM(CASE WHEN t.pnl > 0 THEN 1 ELSE 0 END), 0) AS winning,
                    COALESCE(SUM(COALESCE(t.pnl, 0)), 0) AS total_pnl
             FROM auto_paper_trades t
             LEFT JOIN monitoring_notifications n ON n.id = t.notification_id
             {where}
-            GROUP BY 1
-            ORDER BY closed DESC, source""",
+            GROUP BY 1, 2
+            ORDER BY closed DESC, source, timeframe""",
         params,
     ).fetchall()
     out = []
     for row in rows:
         closed = int(row["closed"] or 0)
         winning = int(row["winning"] or 0)
+        timeframe = str(row["timeframe"] or "").strip()
         out.append({
             "source": str(row["source"] or "bilinmiyor"),
+            "timeframe": timeframe or None,
             "closed": closed,
             "winning": winning,
             "win_rate": round(winning / closed * 100, 1) if closed else 0.0,
             "total_pnl_try": round(float(row["total_pnl"] or 0), 2),
         })
+    order = {"1m": 0, "5m": 1, "15m": 2, "30m": 3, "1h": 4, "4h": 5, "1d": 6}
+    out.sort(key=lambda item: (
+        0 if item["source"] == "ema_ribbon" else 1,
+        order.get(item["timeframe"] or "", 9),
+        -item["closed"],
+        item["source"],
+    ))
     return out
 
 
