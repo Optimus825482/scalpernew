@@ -26,6 +26,22 @@ const MarketChart = dynamic(() => import("./components/MarketChart"), {
 type HorizonFilter = "all" | "favorites" | "5" | "15";
 type LayoutMode = "cards" | "terminal";
 
+function isRibbonCandidate(raw: Record<string, unknown>): boolean {
+  const codes = [
+    ...(Array.isArray(raw.signal_sources) ? raw.signal_sources : []),
+    ...(Array.isArray(raw.unified_sources) ? raw.unified_sources : []),
+    ...(Array.isArray(raw.sources) ? raw.sources : []),
+    raw.strategy,
+  ].map((code) => String(code || ""));
+  return codes.includes("ema_ribbon")
+    || Number(raw.ribbon_bar_ms || 0) > 0
+    || (Array.isArray(raw.ribbon_events) && raw.ribbon_events.length > 0);
+}
+
+function isRibbonView(item: OpportunityView): boolean {
+  return item.strategy === "ema_ribbon" || item.sourceCodes.includes("ema_ribbon");
+}
+
 /** İmleç bir metin alanındayken kısayollar devre dışı kalır. */
 function isTypingTarget(target: EventTarget | null) {
   const element = target as HTMLElement | null;
@@ -101,15 +117,40 @@ export default function Home() {
   const latestRunAt = Number(latestRun?.completed_at ?? latestRun?.generated_at ?? 0);
   const run = manualRun && Number(manualRun.completed_at || 0) >= latestRunAt ? manualRun : latestRun;
   const views = useMemo(() => {
-    // Sembol bazında TEKİL: aynı sembol 5 dk ve 15 dk ufuklarında iki kart
-    // olarak çıkıyordu; en güçlü ufuk temsil eder, diğerleri elenir.
+    // Son taramanın kendi listesi tabandır (Fırsatlar ile aynı tespitler).
+    // 15 dk'lık özet bu listenin yerine geçmez; yalnızca EMA kesişimini
+    // son taramada düşmüş olsa bile kartta tutar. Sembol başına en güçlü ufuk kalır.
     const unique = new Map<string, OpportunityView>();
-    const pool = Array.isArray(run?.recent_candidates) ? run.recent_candidates : (run?.candidates ?? []);
-    for (const candidate of pool) {
+    const latest = run?.candidates ?? [];
+    const recent = Array.isArray(run?.recent_candidates) ? run.recent_candidates : [];
+    const latestSymbols = new Set<string>();
+    const put = (view: OpportunityView) => {
+      const existing = unique.get(view.symbol);
+      if (!existing || (view.strength ?? 0) >= (existing.strength ?? 0)) unique.set(view.symbol, view);
+    };
+    for (const candidate of latest) {
       const view = toOpportunityView(candidate);
       if (!view.symbol) continue;
-      const existing = unique.get(view.symbol);
-      if (!existing || (view.strength ?? 0) > (existing.strength ?? 0)) unique.set(view.symbol, view);
+      latestSymbols.add(view.symbol);
+      put(view);
+    }
+    for (const candidate of recent) {
+      const view = toOpportunityView(candidate);
+      if (!view.symbol) continue;
+      const ribbon = isRibbonCandidate(candidate as Record<string, unknown>) || isRibbonView(view);
+      if (latestSymbols.has(view.symbol)) {
+        if (!ribbon) continue;
+        const current = unique.get(view.symbol);
+        if (current && !current.sourceCodes.includes("ema_ribbon")) {
+          unique.set(view.symbol, {
+            ...current,
+            sourceCodes: [...current.sourceCodes, "ema_ribbon"],
+            sources: current.sources.includes("EMA Kurdele") ? current.sources : [...current.sources, "EMA Kurdele"],
+          });
+        }
+        continue;
+      }
+      if (ribbon) put(view);
     }
     return Array.from(unique.values()).sort((left, right) => {
       const favoriteOrder = Number(isFavorite(right.symbol)) - Number(isFavorite(left.symbol));
@@ -119,7 +160,9 @@ export default function Home() {
   }, [run, isFavorite]);
 
   const filtered = useMemo(() => {
-    const scored = minScore > 0 ? views.filter((item) => (item.strength ?? 0) >= minScore) : views;
+    const scored = minScore > 0
+      ? views.filter((item) => isRibbonView(item) || (item.strength ?? 0) >= minScore)
+      : views;
     if (horizon === "favorites") return scored.filter((item) => isFavorite(item.symbol));
     if (horizon === "all") return scored;
     return scored.filter((item) => item.horizonMinutes === Number(horizon));
@@ -355,7 +398,7 @@ export default function Home() {
                 ))}
               </div>
             )}
-            {run && <p className="mt-3 text-[10px] text-ink-400">Son 15 dakikanın taramaları ve 1 dk EMA alımları · her sembol bir kez.{minScore > 0 ? ` Skor filtresi ${minScore}+ uygulanıyor.` : ""}</p>}
+            {run && <p className="mt-3 text-[10px] text-ink-400">Son taramanın tespitleri ve EMA kurdele kesişimleri · her sembol bir kez.{minScore > 0 ? ` Skor filtresi ${minScore}+ uygulanıyor.` : ""}</p>}
           </Card>
         </div>
       ) : (
@@ -413,7 +456,7 @@ export default function Home() {
                 ))}
               </div>
             )}
-            {run && <p className="mt-3 text-[10px] text-ink-400">Son 15 dakikanın taramaları ve 1 dk EMA alımları · her sembol bir kez.{minScore > 0 ? ` Skor filtresi ${minScore}+ uygulanıyor.` : ""}</p>}
+            {run && <p className="mt-3 text-[10px] text-ink-400">Son taramanın tespitleri ve EMA kurdele kesişimleri · her sembol bir kez.{minScore > 0 ? ` Skor filtresi ${minScore}+ uygulanıyor.` : ""}</p>}
           </Card>
 
           <div id="islem-paneli" className="scroll-mt-24 lg:sticky lg:top-20 lg:self-start">
