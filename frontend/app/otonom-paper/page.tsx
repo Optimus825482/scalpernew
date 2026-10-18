@@ -6,6 +6,7 @@ import { usePoll } from "../lib/hooks";
 import { livePrice, useSymbolPrices } from "../lib/livePrices";
 import { useAuth } from "../lib/auth";
 import { fmtDateTime, formatPrice, formatSignedTL, formatTL } from "../lib/format";
+import { sourceLabel } from "../lib/sources";
 import { Badge, Card, EmptyState, SectionHeader, Skeleton } from "../components/ui";
 
 type PaperTrade = {
@@ -24,6 +25,7 @@ type PaperTrade = {
   pnl?: number | null;
   pnl_pct?: number | null;
   exit_reason?: string | null;
+  trigger_source?: string | null;
 };
 
 type PaperList = { trades?: PaperTrade[] };
@@ -38,6 +40,7 @@ type PaperStats = {
     open?: number;
     closed?: number;
     win_rate?: number;
+    by_source?: Array<{ source: string; closed: number; winning: number; win_rate: number; total_pnl_try: number }>;
   };
 };
 
@@ -124,6 +127,36 @@ export default function OtonomPaperPage() {
         </Card>
       </div>
 
+      {(stats?.by_source?.length ?? 0) > 0 && (
+        <Card className="p-4">
+          <SectionHeader eyebrow="Kaynak" title="Kaynağa göre başarı" description="Kapanan otonom işlemler, açılışı tetikleyen sinyale göre." />
+          <div className="odak-scroll mt-3">
+            <table className="w-full min-w-[520px] border-collapse text-sm">
+              <thead>
+                <tr className="text-left text-[11px] uppercase tracking-wide text-ink-400">
+                  <th className="pb-2 pr-3 font-medium">Kaynak</th>
+                  <th className="pb-2 pr-3 text-right font-medium">Kapanan</th>
+                  <th className="pb-2 pr-3 text-right font-medium">Kazanan</th>
+                  <th className="pb-2 pr-3 text-right font-medium">Başarı</th>
+                  <th className="pb-2 text-right font-medium">Net K/Z</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats?.by_source?.map((row) => (
+                  <tr key={row.source} className="border-t border-line">
+                    <td className="py-2 pr-3 font-medium text-ink-800">{sourceLabel(row.source) || row.source}</td>
+                    <td className="py-2 pr-3 text-right font-mono">{row.closed}</td>
+                    <td className="py-2 pr-3 text-right font-mono">{row.winning}</td>
+                    <td className={`py-2 pr-3 text-right font-mono ${row.win_rate >= 50 ? "text-gain" : "text-ink-700"}`}>%{row.win_rate.toFixed(1)}</td>
+                    <td className={`py-2 text-right font-mono ${row.total_pnl_try >= 0 ? "text-gain" : "text-loss"}`}>{formatSignedTL(row.total_pnl_try)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
       <Card className="p-4">
         <SectionHeader
           eyebrow="Açık"
@@ -160,6 +193,7 @@ function TradeTable({ rows, onClose }: { rows: PaperTrade[]; onClose?: (trade: P
         <thead>
           <tr className="text-left text-[11px] uppercase tracking-wide text-ink-400">
             <th className="pb-2 pr-3 font-medium">Sembol</th>
+            <th className="pb-2 pr-3 font-medium">Tetik</th>
             <th className="pb-2 pr-3 font-medium">Zaman</th>
             <th className="pb-2 pr-3 text-right font-medium">Giriş</th>
             <th className="pb-2 pr-3 text-right font-medium">Şimdi / Çıkış</th>
@@ -179,6 +213,7 @@ function TradeTable({ rows, onClose }: { rows: PaperTrade[]; onClose?: (trade: P
                 <td className="py-2 pr-3 font-mono font-semibold text-ink-900">
                   <AppLink href={`/grafik?symbol=${encodeURIComponent(trade.symbol)}&interval=5m`} className="hover:text-accent" title={`${trade.symbol} grafiğini aç`}>{trade.symbol}</AppLink>
                 </td>
+                <td className="py-2 pr-3 text-xs text-ink-600">{sourceLabel(trade.trigger_source) || "Kaynak yok"}</td>
                 <td className="py-2 pr-3 font-mono text-xs text-ink-500">{fmtDateTime(trade.exit_time || trade.entry_time)}</td>
                 <td className="py-2 pr-3 text-right font-mono">{formatPrice(trade.entry_price)}</td>
                 <td className="py-2 pr-3 text-right font-mono">{formatPrice(mark)}</td>

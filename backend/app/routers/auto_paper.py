@@ -212,6 +212,32 @@ async def restore_runtime_state() -> None:
 # ---------------------------------------------------------------------------
 # Core: bildirim → pozisyon açılışı
 # ---------------------------------------------------------------------------
+def _trigger_source(notification: dict) -> str:
+    """İşlemi açan sinyalin kısa kodu. Raporlarda kaynağa göre gruplanır."""
+    strategy = str(notification.get("strategy") or "").strip().lower()
+    mode = str(notification.get("mode") or "").strip().lower()
+    raw = notification.get("sources") or notification.get("signal_sources") or notification.get("unified_sources") or []
+    if isinstance(raw, str):
+        text = raw.strip()
+        if text.startswith("["):
+            try:
+                raw = json.loads(text)
+            except (TypeError, ValueError):
+                raw = []
+        else:
+            raw = [part.strip() for part in text.replace("|", ",").split(",") if part.strip()]
+    sources = [str(item).strip().lower() for item in raw if str(item).strip()]
+    if strategy == "ema_ribbon" or mode == "ema_ribbon" or "ema_ribbon" in sources:
+        return "ema_ribbon"
+    if strategy and strategy not in {"both", "combined", "unified"}:
+        return strategy[:40]
+    if sources:
+        return sources[0][:40]
+    if mode and mode not in {"unified", "notr"}:
+        return mode[:40]
+    return strategy[:40] or "unified"
+
+
 async def try_open_from_notification(notification: dict) -> dict | None:
     """Bir monitoring bildirimi geldiğinde otonom paper pozisyonu aç.
 
@@ -796,6 +822,7 @@ async def _open_new_trade(symbol: str, notification: dict, current_price: float,
             "peak_price": fill_entry,
             "entry_time": now,
             "notification_score": notification.get("score"),
+            "trigger_source": _trigger_source(notification),
             "notification_target_pct": target_pct,
             "notification_expected_price": notification.get("expected_price"),
             "tp1_scalp_pct": float(tp1_scalp_val) if tp1_scalp_val is not None else None,
@@ -810,7 +837,7 @@ async def _open_new_trade(symbol: str, notification: dict, current_price: float,
             "symbol": symbol,
             "action": "BUY_SIGNAL",
             "price": fill_entry,
-            "reason": f"AUTO_PAPER skor {notification.get('score', 0):.1f} hedef +%{target_pct:.1f} TP={take_profit_price:.6f} SL={stop_loss_price:.6f}",
+            "reason": f"AUTO_PAPER {_trigger_source(notification)} skor {notification.get('score', 0):.1f} hedef +%{target_pct:.1f} TP={take_profit_price:.6f} SL={stop_loss_price:.6f}",
             "strategy": "AUTO_PAPER",
             "trade_id": None,  # insert sonrası id bilinir; DB'de dolduramayız, reason yeterli
             # D-11/Erkan (2026-09-18): çalışma-anı sınırını DB katmanının
@@ -1535,6 +1562,7 @@ async def open_from_scan_candidates(candidates: list[dict]) -> int:
             "passes": True,
             "detected_at": time.time(),
             "strategy": raw.get("strategy") or "combined",
+            "sources": raw.get("signal_sources") or raw.get("unified_sources") or [],
         }
         result = await try_open_from_notification(envelope)
         if isinstance(result, dict) and result.get("status") == "opened":
@@ -1592,6 +1620,7 @@ async def open_ribbon_candidates(candidates: list[dict]) -> int:
             "passes": True,
             "detected_at": time.time(),
             "strategy": "ema_ribbon",
+            "sources": ["ema_ribbon"],
         })
         if isinstance(result, dict) and result.get("status") == "opened":
             opened += 1
@@ -1811,7 +1840,7 @@ async def list_trades_endpoint(
         include_archived=include_archived, apply_reports_baseline=not _only_open
     )
     # Açık pozisyonlar için güncel ticker fiyatını ekle (frontend PnL hesabı için)
-    notif_ids = [int(t["notification_id"]) for t in trades if t.get("status") == "open" and t.get("notification_id")]
+    notif_ids = [int(t["notification_id"]) for t in trades if t.get("notification_id")]
     notifs = await database.get_monitoring_notifications_by_ids(notif_ids) if notif_ids else {}
     for t in trades:
         if t.get("status") == "open":
@@ -1829,6 +1858,10 @@ async def list_trades_endpoint(
                     t["notification_score"] = float(notif.get("score") or 0)
             else:
                 t["notification_price"] = float(t.get("entry_price") or 0)
+        if not t.get("trigger_source"):
+            nid = t.get("notification_id")
+            notif = notifs.get(int(nid)) if nid else None
+            t["trigger_source"] = _trigger_source(notif) if notif else "bilinmiyor"
     reset_at = await database.get_reset_cutoff()
     return {
         "paper_only": True,

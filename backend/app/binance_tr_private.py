@@ -441,10 +441,15 @@ def _signed_request(method: str, path: str, params: dict | None,
 def new_client_order_id(prefix: str = "sc") -> str:
     """Durum sorgusunda kullanılacak clientId üretir.
 
-    Binance TR clientId alanı en fazla 36 karakterdir. ID mutabakat içindir;
-    benzersizlik veya emir POST tekrar güvenliği sağlamaz.
+    Binance TR clientId işaretsiz tam sayıdır. Harf veya 32 haneden uzun
+    değer 3703 Invalid client ID döner. 13 haneli milisaniye + 5 haneli
+    rastgele ek, int64 içine sığar. `prefix` çağrı uyumu için durur;
+    kimliğe yazılmaz.
     """
-    return f"{prefix}{uuid.uuid4().hex}"[:36]
+    del prefix
+    stamp = int(time.time() * 1000)
+    extra = uuid.uuid4().int % 100_000
+    return f"{stamp}{extra:05d}"
 
 
 def _qty_to_float(value) -> float:

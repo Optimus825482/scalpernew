@@ -411,6 +411,7 @@ async def init_db():
         # yollari) TP'yi GERI DIRILTMESINI engeller — 2026-09-18 basarisizliginin
         # kok nedeni buydu. Bkz. auto_paper._manage_single_trade.
         conn.execute("ALTER TABLE auto_paper_trades ADD COLUMN IF NOT EXISTS tp_cancelled BOOLEAN DEFAULT FALSE")
+        conn.execute("ALTER TABLE auto_paper_trades ADD COLUMN IF NOT EXISTS trigger_source TEXT")
         # D-06 (2026-09-14): MFE ulasilamaz bir TEPE. `exit_pct` ufuk sonundaki
         # kapanis (gerceklestirilebilir), `net_pct` gidis/donus maliyeti dusulmus hali.
         conn.execute("ALTER TABLE velocity_candidates ADD COLUMN IF NOT EXISTS exit_pct DOUBLE PRECISION")
@@ -5468,7 +5469,7 @@ async def get_monitoring_notifications_by_ids(notification_ids: list[int]) -> di
         marks = ",".join(["?"] * len(ids))
         rows = conn.execute(
             "SELECT id, symbol, score, target_pct, price, expected_price, "
-            "horizon_minutes, detected_at, mode "
+            "horizon_minutes, detected_at, mode, sources "
             f"FROM monitoring_notifications WHERE id IN ({marks})",
             tuple(ids),
         ).fetchall()
@@ -6685,14 +6686,15 @@ async def open_auto_paper_trade(trade: dict, signal: dict) -> tuple[dict | None,
                (symbol, side, status, notification_id, notification_key, entry_price, quantity, order_value_try,
                 stop_loss, take_profit, peak_price, entry_time,
                 notification_score, notification_target_pct, notification_expected_price,
-                created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING *""",
+                trigger_source, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING *""",
             (symbol, trade.get("side", "LONG"), "open",
              notification_id, notification_key, trade["entry_price"], trade["quantity"], order_value,
              trade.get("stop_loss"), trade.get("take_profit"),
              trade.get("peak_price", trade["entry_price"]), trade["entry_time"],
              trade.get("notification_score"), trade.get("notification_target_pct"),
-             trade.get("notification_expected_price"), trade["created_at"], trade["updated_at"])
+             trade.get("notification_expected_price"), trade.get("trigger_source"),
+             trade["created_at"], trade["updated_at"])
         ).fetchone()
         if signal:
             trade_id_val = row["id"] if row else None
@@ -6890,6 +6892,44 @@ async def list_auto_paper_trades(
     return await _run_db(op)
 
 
+def _auto_paper_source_stats(conn, cutoff, until, confluence_4way_only: bool) -> list[dict]:
+    """Kapanan otonom işlemlerin tetik kaynağına göre kazanma ve net K/Z."""
+    where = "WHERE t.status='closed' AND COALESCE(t.exit_reason,'') <> 'reset'"
+    params: list = []
+    if cutoff:
+        where += " AND t.exit_time >= ?"
+        params.append(cutoff)
+    if until:
+        where += " AND t.exit_time < ?"
+        params.append(until)
+    if confluence_4way_only:
+        where += " AND t.confluence_4way = TRUE"
+    rows = conn.execute(
+        f"""SELECT COALESCE(NULLIF(t.trigger_source, ''), NULLIF(n.mode, ''), 'bilinmiyor') AS source,
+                   COUNT(*) AS closed,
+                   COALESCE(SUM(CASE WHEN t.pnl > 0 THEN 1 ELSE 0 END), 0) AS winning,
+                   COALESCE(SUM(COALESCE(t.pnl, 0)), 0) AS total_pnl
+            FROM auto_paper_trades t
+            LEFT JOIN monitoring_notifications n ON n.id = t.notification_id
+            {where}
+            GROUP BY 1
+            ORDER BY closed DESC, source""",
+        params,
+    ).fetchall()
+    out = []
+    for row in rows:
+        closed = int(row["closed"] or 0)
+        winning = int(row["winning"] or 0)
+        out.append({
+            "source": str(row["source"] or "bilinmiyor"),
+            "closed": closed,
+            "winning": winning,
+            "win_rate": round(winning / closed * 100, 1) if closed else 0.0,
+            "total_pnl_try": round(float(row["total_pnl"] or 0), 2),
+        })
+    return out
+
+
 async def get_auto_paper_stats(
     confluence_4way_only: bool = False,
     since: float | None = None,
@@ -6974,6 +7014,7 @@ async def get_auto_paper_stats(
             "total_pnl_try": round(total_pnl, 2),
             "total_invested_try": round(float(row["total_invested"] or 0.0), 2),
             "avg_pnl_try": round(total_pnl / closed, 2) if closed else 0.0,
+            "by_source": _auto_paper_source_stats(conn, cutoff, eff_until, confluence_4way_only),
         }
     return await _run_db(op)
 

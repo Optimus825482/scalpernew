@@ -465,6 +465,13 @@ def test_get_symbol_filters_parses_lot_size():
     assert again[1]["quote_asset"] == "USDT"
 
 
+def test_client_id_is_unsigned_integer():
+    client_id = btp.new_client_order_id("oc")
+    assert client_id.isdigit()
+    assert 1 <= len(client_id) <= 18
+    assert int(client_id) > 0
+
+
 def test_fmt_price_rounds_to_tick_size():
     assert btp._fmt_price(123.4567, 0.01) == "123.46"
     assert btp._fmt_price(0.001234, 0.0001) == "0.0012"
