@@ -3521,6 +3521,48 @@ def _avg_buy_cost(
     _binance_cost_cache[(user_id, asset)] = (now + 300.0, info)
     return info
 
+def _is_open_sell(order: dict) -> bool:
+    """Binance TR: side 1 ve SELL satış emridir. Alış emrine dokunulmaz."""
+    side = str(order.get("side") or "").upper()
+    return side in {"SELL", "1"}
+
+
+async def _cancel_asset_protection(api_key: str, api_secret: str, asset: str) -> list[dict]:
+    """Satıştan önce varlığın TRY/USDT çiftlerindeki açık satış emirlerini iptal eder.
+
+    Stop, limit kâr ve OCO bacakları bakiyeyi kilitler. İptal bitmeden piyasa
+    satışı gönderilmez. Bir iptal başarısız olursa satış da gönderilmez.
+    """
+    cancelled: list[dict] = []
+    seen: set[int] = set()
+    for quote in ("TRY", "USDT"):
+        symbol = f"{asset}_{quote}"
+        try:
+            orders = await asyncio.to_thread(get_open_orders, api_key, api_secret, symbol)
+        except Exception as exc:
+            logger.info("%s açık emirleri okunamadı, satış öncesi iptal atlandı: %s", symbol, exc)
+            continue
+        for order in orders or []:
+            if not _is_open_sell(order):
+                continue
+            try:
+                order_id = int(order.get("orderId") or 0)
+            except (TypeError, ValueError):
+                continue
+            if order_id <= 0 or order_id in seen:
+                continue
+            seen.add(order_id)
+            try:
+                await asyncio.to_thread(cancel_order, api_key, api_secret, order_id, symbol)
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"{symbol} koruma emri #{order_id} iptal edilemedi, satış gönderilmedi: {exc}",
+                ) from exc
+            cancelled.append({"order_id": order_id, "symbol": symbol})
+    return cancelled
+
+
 @app.post("/api/binance/sell")
 async def binance_sell(payload: dict, request: Request):
     """Kullanıcı onaylı MARKET SELL (oturum açmış kullanıcı, gerçek emir).
@@ -3545,8 +3587,9 @@ async def binance_sell(payload: dict, request: Request):
     asset = str(payload.get("asset") or "").upper().strip()
     if not asset or asset == "TRY":
         raise HTTPException(status_code=422, detail="Geçersiz varlık")
+    cancelled_orders = await _cancel_asset_protection(api_key, api_secret, asset)
     try:
-        balances = await asyncio.to_thread(get_account_balance, api_key, api_secret)
+        balances = await asyncio.to_thread(get_account_balance, api_key, api_secret, True)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Binance TR hesap bilgisi alınamadı: {exc}")
     row = next((b for b in balances if str(b.get("asset") or "").upper() == asset), None)
@@ -3554,7 +3597,17 @@ async def binance_sell(payload: dict, request: Request):
     if free <= 0:
         raise HTTPException(status_code=422, detail=f"{asset} için satılabilir (boşta) bakiye yok")
 
-    requested = payload.get("quantity")
+    percent = payload.get("percent")
+    if percent not in (None, ""):
+        try:
+            pct = float(percent)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail="Geçersiz satış yüzdesi")
+        if not 0 < pct <= 100:
+            raise HTTPException(status_code=422, detail="Satış yüzdesi 0 ile 100 arasında olmalı")
+        requested = free * pct / 100.0
+    else:
+        requested = payload.get("quantity")
     try:
         qty = free if requested in (None, "", "all") else float(requested)
     except (TypeError, ValueError):
@@ -3612,10 +3665,11 @@ async def binance_sell(payload: dict, request: Request):
     # PERFORMANS (2026-09-27): TTL uzatılan FIFO maliyet cache'ini emir sonrası
     # tazele — satış FIFO kuyruğunu değiştirir, eski maliyet yanlış PnL üretir.
     _invalidate_binance_cost_cache(int(user["id"]))
+    _positions_cache.pop(int(user["id"]), None)
     _actor, _actor_role = _session_identity(request)
     await log_user_action(_actor, _actor_role, "trade", "BINANCE_TR_SELL",
-                          target=asset, details={"asset": asset, **result}, request=request)
-    return {"ok": True, **result}
+                          target=asset, details={"asset": asset, "cancelled_orders": cancelled_orders, **result}, request=request)
+    return {"ok": True, "cancelled_orders": cancelled_orders, **result}
 
 
 @app.post("/api/binance/watch")
