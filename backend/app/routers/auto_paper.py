@@ -263,6 +263,22 @@ def _is_four_badge(notification: dict) -> bool:
     return _FOUR_CORE <= set(_source_codes(notification)) and _mtf_badge(notification)
 
 
+def _badge_codes(notification: dict) -> set[str]:
+    """Kartta görünen motorlar. MACD MTF rozeti konfluans 45 ile eklenir."""
+    codes = set(_source_codes(notification))
+    if _mtf_badge(notification):
+        codes.add("macd_mtf")
+    return codes
+
+
+def _rising_pair_or_triple(notification: dict) -> bool:
+    """Yükseliş ile birlikte iki veya üç rozet. Dört rozet ve MA kurdele ayrı kapıda."""
+    codes = _badge_codes(notification)
+    if "ema_ribbon" in codes or "rising" not in codes:
+        return False
+    return len(codes) in (2, 3)
+
+
 def _solo_rising_score(notification: dict) -> float | None:
     """Kartta yalnız Yükseliş rozeti varsa onun skoru. Başka motor varsa None."""
     codes = set(_source_codes(notification))
@@ -295,6 +311,8 @@ def _trigger_source(notification: dict) -> str:
     sources = [str(item).strip().lower() for item in raw if str(item).strip()]
     if strategy == "ema_ribbon" or mode == "ema_ribbon" or "ema_ribbon" in sources:
         return "ema_ribbon"
+    if _rising_pair_or_triple(notification):
+        return "rising"
     if strategy and strategy not in {"both", "combined", "unified"}:
         return strategy[:40]
     if sources:
@@ -350,7 +368,7 @@ def _ribbon_paper_timeframe(frames) -> str | None:
 
 
 def _auto_open_block_reason(notification: dict) -> str | None:
-    """Otomatik paper kapısı. MA dilimleri ve dört rozet açılır. Tek motor açılmaz."""
+    """Otomatik paper kapısı. MA, dört rozet ve içinde Yükseliş olan 2-3 rozet açılır."""
     source = _trigger_source(notification)
     if source == "ema_ribbon":
         frames = [
@@ -1737,7 +1755,9 @@ async def open_from_scan_candidates(candidates: list[dict]) -> int:
         except (TypeError, ValueError):
             score = 0.0
         rising_score = _solo_rising_score(raw)
-        if rising_score is not None:
+        if _rising_pair_or_triple(raw):
+            pass
+        elif rising_score is not None:
             rising_floor = float(getattr(config, "RISING_AUTO_MIN_SCORE", 70) or 70)
             if rising_score < rising_floor:
                 continue

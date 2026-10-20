@@ -1098,6 +1098,21 @@ class FourBadgeGateTests(unittest.TestCase):
         self.assertIsNone(auto_paper._auto_open_block_reason(solo))
         self.assertEqual("rising", auto_paper._trigger_source(solo))
 
+    def test_rising_inside_two_or_three_badges_opens(self):
+        pair = {"strategy": "both", "signal_sources": ["velocity", "rising"]}
+        triple = {"strategy": "combined", "signal_sources": ["velocity", "jump", "rising"]}
+        no_rising = {"strategy": "combined", "signal_sources": ["velocity", "jump"]}
+        four_without_mtf = {"strategy": "combined", "signal_sources": ["velocity", "jump", "early", "rising"]}
+        self.assertTrue(auto_paper._rising_pair_or_triple(pair))
+        self.assertTrue(auto_paper._rising_pair_or_triple(triple))
+        self.assertFalse(auto_paper._rising_pair_or_triple(no_rising))
+        self.assertFalse(auto_paper._rising_pair_or_triple(four_without_mtf))
+        self.assertIsNone(auto_paper._auto_open_block_reason(pair))
+        self.assertIsNone(auto_paper._auto_open_block_reason(triple))
+        self.assertEqual("source_paused", auto_paper._auto_open_block_reason(no_rising))
+        self.assertEqual("source_paused", auto_paper._auto_open_block_reason(four_without_mtf))
+        self.assertEqual("rising", auto_paper._trigger_source(pair))
+
 
 if __name__ == "__main__":
     unittest.main()
