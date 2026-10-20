@@ -6967,13 +6967,20 @@ async def list_auto_paper_trades(
     return await _run_db(op)
 
 
-def _auto_paper_source_stats(conn, cutoff, until, confluence_4way_only: bool) -> list[dict]:
-    """Kapanan otonom işlemlerin tetik kaynağına göre kazanma ve net K/Z."""
+def _auto_paper_source_stats(conn, cutoff, until, confluence_4way_only: bool, entered_since: float = 0.0) -> list[dict]:
+    """Kapanan otonom işlemlerin tetik kaynağına göre kazanma ve net K/Z.
+
+    ``entered_since`` son kural güncellemesidir. Başarı, o andan sonra açılan
+    işlemlere göredir; eski kuralla açılıp sonra kapananlar karışmaz.
+    """
     where = "WHERE t.status='closed' AND COALESCE(t.exit_reason,'') <> 'reset'"
     params: list = []
     if cutoff:
         where += " AND t.exit_time >= ?"
         params.append(cutoff)
+    if entered_since:
+        where += " AND t.entry_time >= ?"
+        params.append(entered_since)
     if until:
         where += " AND t.exit_time < ?"
         params.append(until)
@@ -7093,6 +7100,7 @@ async def get_auto_paper_stats(
         closed = int(row["closed"] or 0)
         winning = int(row["winning"] or 0)
         total_pnl = float(row["total_pnl"] or 0.0)
+        source_since = max(cutoff or 0.0, _parse_reports_baseline(getattr(config, "PAPER_RULES_SINCE", "")))
         return {
             "total": closed + int(open_row["open"] or 0),
             "open": int(open_row["open"] or 0),
@@ -7103,7 +7111,8 @@ async def get_auto_paper_stats(
             "total_pnl_try": round(total_pnl, 2),
             "total_invested_try": round(float(row["total_invested"] or 0.0), 2),
             "avg_pnl_try": round(total_pnl / closed, 2) if closed else 0.0,
-            "by_source": _auto_paper_source_stats(conn, cutoff, eff_until, confluence_4way_only),
+            "source_since": source_since,
+            "by_source": _auto_paper_source_stats(conn, cutoff, eff_until, confluence_4way_only, source_since),
         }
     return await _run_db(op)
 

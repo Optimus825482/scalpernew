@@ -1065,6 +1065,32 @@ class AutoPaperP0P2FixTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(defaults["tp_cancel_on_trail"])
 
 
+class FourBadgeGateTests(unittest.TestCase):
+    def test_four_motors_open_and_a_single_radar_stays_closed(self):
+        four = {
+            "strategy": "combined",
+            "sources": ["velocity", "jump", "early", "macd_mtf"],
+        }
+        radar = {"strategy": "velocity", "sources": ["velocity"]}
+        triple = {"strategy": "combined", "sources": ["velocity", "jump", "early"]}
+        self.assertEqual("four_badge", auto_paper._trigger_source(four))
+        self.assertIsNone(auto_paper._auto_open_block_reason(four))
+        self.assertEqual("source_paused", auto_paper._auto_open_block_reason(radar))
+        self.assertEqual("source_paused", auto_paper._auto_open_block_reason(triple))
+
+    def test_mtf_badge_needs_fresh_confluence(self):
+        fresh = {
+            "sources": ["velocity", "jump", "early"],
+            "macd_mtf": {"confluence": 60, "age_sec": 20, "verdict": "ORTA"},
+        }
+        stale = {
+            "sources": ["velocity", "jump", "early"],
+            "macd_mtf": {"confluence": 80, "age_sec": 400, "verdict": "GÜÇLÜ"},
+        }
+        self.assertTrue(auto_paper._is_four_badge(fresh))
+        self.assertFalse(auto_paper._is_four_badge(stale))
+
+
 if __name__ == "__main__":
     unittest.main()
 

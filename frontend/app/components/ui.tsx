@@ -73,6 +73,7 @@ const SOURCE_BADGES: Record<string, SourceBadgeStyle> = {
   },
   snapback: { label: "Snapback", icon: "⟲", cls: "border-cyan-200 bg-cyan-50 text-cyan-700" },
   macd_mtf: { label: "MACD MTF", icon: "≣", cls: "border-indigo-200 bg-indigo-50 text-indigo-700" },
+  four_badge: { label: "4 Rozet", icon: "4", cls: "border-indigo-300 bg-indigo-600 text-white" },
   macd_snapshot: { label: "MACD Anlık", icon: "◐", cls: "border-slate-200 bg-slate-100 text-slate-600" },
   fusion: { label: "Füzyon", icon: "✦", cls: "border-transparent bg-accent text-white" },
   both: { label: "Momentum+Squeeze", icon: "⇄", cls: "border-amber-200 bg-amber-50 text-amber-700" },

@@ -41,6 +41,7 @@ type PaperStats = {
     open?: number;
     closed?: number;
     win_rate?: number;
+    source_since?: number;
     by_source?: Array<{ source: string; timeframe?: string | null; closed: number; winning: number; win_rate: number; total_pnl_try: number }>;
   };
 };
@@ -128,9 +129,15 @@ export default function OtonomPaperPage() {
         </Card>
       </div>
 
-      {(stats?.by_source?.length ?? 0) > 0 && (
-        <Card className="p-4">
-          <SectionHeader eyebrow="Kaynak" title="Kaynağa göre başarı" description="Kapanan otonom işlemler, açılışı tetikleyen sinyale göre. MA Kurdele zaman dilimine ayrılır." />
+      <Card className="p-4">
+          <SectionHeader
+            eyebrow="Kaynak"
+            title="Kaynağa göre başarı"
+            description={`Son kural güncellemesinden sonra açılan işlemler${stats?.source_since ? ` (${fmtDateTime(stats.source_since)})` : ""}. MA Kurdele zaman dilimine ayrılır.`}
+          />
+          {(stats?.by_source?.length ?? 0) === 0 ? (
+            <p className="mt-3 text-sm text-ink-500">Bu tarihten sonra kapanan işlem yok. Yeni kurallarla açılan işlemler kapanınca burada görünür.</p>
+          ) : (
           <div className="odak-scroll mt-3">
             <table className="w-full min-w-[520px] border-collapse text-sm">
               <thead>
@@ -155,8 +162,8 @@ export default function OtonomPaperPage() {
               </tbody>
             </table>
           </div>
+          )}
         </Card>
-      )}
 
       <Card className="p-4">
         <SectionHeader

@@ -32,6 +32,7 @@ const SOURCE_LABELS: Record<string, string> = {
   pulse: "Hızlı Nabız",
   snapback: "Snapback Dip",
   macd_mtf: "MACD Çoklu Zaman",
+  four_badge: "4 Rozet",
   early_discovery: "Erken Keşif",
   whale: "Balina Girişi",
   dip_approach: "Dip Dönüşü",

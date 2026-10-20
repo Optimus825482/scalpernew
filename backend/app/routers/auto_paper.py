@@ -213,8 +213,60 @@ async def restore_runtime_state() -> None:
 # ---------------------------------------------------------------------------
 # Core: bildirim → pozisyon açılışı
 # ---------------------------------------------------------------------------
+_FOUR_CORE = frozenset({"velocity", "jump", "early"})
+
+
+def _source_codes(notification: dict) -> list[str]:
+    """Bildirimdeki motor kodları. sources, sinyal ve füzyon listeleri birleşir."""
+    found: list[str] = []
+    for key in ("sources", "signal_sources", "unified_sources"):
+        raw = notification.get(key) or []
+        if isinstance(raw, str):
+            text = raw.strip()
+            if text.startswith("["):
+                try:
+                    raw = json.loads(text)
+                except (TypeError, ValueError):
+                    raw = []
+            else:
+                raw = [part.strip() for part in text.replace("|", ",").split(",") if part.strip()]
+        if not isinstance(raw, list):
+            continue
+        for item in raw:
+            code = str(item).strip().lower()
+            if code and code not in found:
+                found.append(code)
+    return found
+
+
+def _mtf_badge(notification: dict) -> bool:
+    """Karttaki MACD MTF rozeti: konfluans 45 ve üstü, önbellek 3 dakikadan taze."""
+    if "macd_mtf" in _source_codes(notification):
+        return True
+    compact = notification.get("macd_mtf")
+    confluence = notification.get("macd_mtf_confluence")
+    age = None
+    if isinstance(compact, dict):
+        if confluence in (None, ""):
+            confluence = compact.get("confluence")
+        age = compact.get("age_sec")
+    try:
+        if age not in (None, "") and float(age) > 180:
+            return False
+        return float(confluence) >= 45
+    except (TypeError, ValueError):
+        return False
+
+
+def _is_four_badge(notification: dict) -> bool:
+    """Radar, MACD sıçrama, erken sıçrama ve MACD MTF aynı anda."""
+    return _FOUR_CORE <= set(_source_codes(notification)) and _mtf_badge(notification)
+
+
 def _trigger_source(notification: dict) -> str:
     """İşlemi açan sinyalin kısa kodu. Raporlarda kaynağa göre gruplanır."""
+    if _is_four_badge(notification):
+        return "four_badge"
     strategy = str(notification.get("strategy") or "").strip().lower()
     mode = str(notification.get("mode") or "").strip().lower()
     raw = notification.get("sources") or notification.get("signal_sources") or notification.get("unified_sources") or []
@@ -285,7 +337,7 @@ def _ribbon_paper_timeframe(frames) -> str | None:
 
 
 def _auto_open_block_reason(notification: dict) -> str | None:
-    """Otomatik paper kapısı. MA 5, 15, 30 dk ve 1 saat. Zarar eden kaynaklar açılmaz."""
+    """Otomatik paper kapısı. MA dilimleri ve dört rozet açılır. Tek motor açılmaz."""
     source = _trigger_source(notification)
     if source == "ema_ribbon":
         frames = [
@@ -1676,13 +1728,15 @@ async def open_from_scan_candidates(candidates: list[dict]) -> int:
         ranked.append((score, raw))
     ranked.sort(key=lambda item: item[0], reverse=True)
     opened = 0
-    for score, raw in ranked[:5]:
+    tried = 0
+    for score, raw in ranked:
         symbol = str(raw.get("symbol") or "").upper()
         try:
             price = float(raw.get("price") or 0)
         except (TypeError, ValueError):
             price = 0.0
         target = raw.get("target_pct") or raw.get("ceiling_pct") or raw.get("potential_pct")
+        compact = raw.get("macd_mtf") if isinstance(raw.get("macd_mtf"), dict) else {}
         envelope = {
             "symbol": symbol,
             "score": score,
@@ -1694,7 +1748,15 @@ async def open_from_scan_candidates(candidates: list[dict]) -> int:
             "detected_at": time.time(),
             "strategy": raw.get("strategy") or "combined",
             "sources": raw.get("signal_sources") or raw.get("unified_sources") or [],
+            "macd_mtf": compact or None,
+            "macd_mtf_confluence": compact.get("confluence"),
+            "macd_mtf_verdict": compact.get("verdict"),
         }
+        if _auto_open_block_reason(envelope):
+            continue
+        if tried >= 5:
+            break
+        tried += 1
         result = await try_open_from_notification(envelope)
         if isinstance(result, dict) and result.get("status") == "opened":
             opened += 1

@@ -871,6 +871,10 @@ class Config:
     #
     # 0 / boş = filtre KAPALI (eski davranış: tüm geçmiş görünür).
     REPORTS_BASELINE_DEFAULT = os.getenv("REPORTS_BASELINE_AT", "2026-10-07 11:30").strip()
+    # Kaynağa göre başarı tablosu. MA kurdele hedefleri ve dört rozet bu andan
+    # sonra açılan işlemlerde geçerli. Daha eski kapanışlar bu tabloya girmez.
+    # Saat Türkiye. Rapor başlangıcından yeniyse o kazanır.
+    PAPER_RULES_SINCE = os.getenv("PAPER_RULES_SINCE", "2026-10-21 00:00").strip()
 
     # ---------------------------------------------------------------------
     # SAKLAMA (RETENTION) PENCERELERİ — disk bütçesi (2026-09-16)
