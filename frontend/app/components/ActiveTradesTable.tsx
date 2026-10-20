@@ -20,7 +20,7 @@ export default function ActiveTradesTable({
   onSelectSymbol?: (symbol: string) => void;
 }) {
   const settings = usePoll<BinanceSettings>("/api/binance/settings", 30_000);
-  const account = usePoll<BinancePositions>(settings.data?.configured ? "/api/binance/positions" : null, 45_000);
+  const account = usePoll<BinancePositions>(settings.data?.configured ? "/api/binance/positions" : null, 45_000, 20_000);
   const { isFavorite, toggleFavorite } = useWatchlist();
 
   const coins = (account.data?.holdings || []).filter((h) => h.asset !== "TRY" && Number(h.total) > 0);

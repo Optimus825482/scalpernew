@@ -2982,6 +2982,12 @@ async def binance_price_tick_loop():
 # alım maliyetleri birbirine karışmasın (eski anahtar yalnız asset'ti ve tek
 # admin hesabı için güvenliydi).
 _binance_cost_cache: dict[tuple[int, str], tuple[float, dict]] = {}
+# Aynı kullanıcının üst üste pozisyon istekleri tek Binance turunu paylaşır.
+_positions_cache: dict[int, tuple[float, dict]] = {}
+_positions_inflight: dict[int, asyncio.Task] = {}
+_positions_guard = asyncio.Lock()
+_POSITIONS_CACHE_SEC = 20.0
+_POSITIONS_ENRICH_SEC = 8.0
 
 
 def _invalidate_binance_cost_cache(user_id: int, asset: str | None = None) -> None:
@@ -3188,10 +3194,35 @@ async def binance_positions(request: Request):
     if not user:
         raise HTTPException(status_code=401, detail="Kullanıcı bulunamadı")
     user_id = int(user["id"])
+    fresh = _positions_cache.get(user_id)
+    if fresh and fresh[0] > time.time():
+        return fresh[1]
+    async with _positions_guard:
+        fresh = _positions_cache.get(user_id)
+        if fresh and fresh[0] > time.time():
+            return fresh[1]
+        task = _positions_inflight.get(user_id)
+        if task is None or task.done():
+            task = asyncio.create_task(_build_binance_positions(
+                request, user_id, str(principal.get("username") or "")))
+            _positions_inflight[user_id] = task
+    try:
+        return await task
+    finally:
+        async with _positions_guard:
+            if _positions_inflight.get(user_id) is task and task.done():
+                _positions_inflight.pop(user_id, None)
+
+
+async def _build_binance_positions(request: Request, user_id: int, username: str) -> dict:
+    """Bakiye ve fiyat hemen, maliyet ile açık emir en fazla 8 sn. Sonuç kısa süre önbellekte kalır."""
     api_key, api_secret = await _decrypt_binance_creds(request)
     stream_status = await _ensure_binance_user_stream(user_id, api_key, api_secret)
     try:
-        balances = await asyncio.to_thread(get_account_balance, api_key, api_secret)
+        balances = await asyncio.wait_for(
+            asyncio.to_thread(get_account_balance, api_key, api_secret), timeout=8)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=503, detail="Binance TR hesap yanıtı gecikti. Birkaç saniye sonra yenilenecek.")
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Binance TR hesap bilgisi alınamadı: {exc}")
     holdings: list[dict] = []
@@ -3208,10 +3239,10 @@ async def binance_positions(request: Request):
         held.append({"asset": asset, "free": free, "locked": locked, "total": total})
     # Görülen varlıkları kalıcı havuza ekle (gün işlemleri sorgusu bunları tarar)
     if held:
-        seen = await _load_seen_binance_assets(str(principal.get("username") or ""))
+        seen = await _load_seen_binance_assets(username)
         new_assets = {h["asset"] for h in held} - seen
         if new_assets:
-            await _save_seen_binance_assets(str(principal.get("username") or ""), seen | new_assets)
+            await _save_seen_binance_assets(username, seen | new_assets)
 
     # Fiyat tablosu: her varlık için önce TRY, sonra USDT çiftini sor (≤50/istek).
     candidates: list[str] = []
@@ -3270,7 +3301,42 @@ async def binance_positions(request: Request):
             except Exception:
                 return None
 
-    costs = await asyncio.gather(*[_cost_for(h) for h in held]) if held else []
+    async def _load_costs() -> list:
+        if not held:
+            return []
+        return await asyncio.gather(*[_cost_for(h) for h in held])
+
+    async def _load_orders() -> list:
+        cand_syms = [f"{h['asset']}_TRY" for h in holdings] + [f"{h['asset']}_USDT" for h in holdings]
+        return await asyncio.to_thread(get_open_orders, api_key, api_secret, "", cand_syms)
+
+    enriched = True
+    costs: list = []
+    open_orders: list = []
+    try:
+        cost_result, order_result = await asyncio.wait_for(
+            asyncio.gather(_load_costs(), _load_orders(), return_exceptions=True),
+            timeout=_POSITIONS_ENRICH_SEC,
+        )
+        if isinstance(cost_result, list):
+            costs = cost_result
+        else:
+            enriched = False
+            logger.info("Pozisyon maliyeti hesaplanamadı: %s", cost_result)
+        if isinstance(order_result, list):
+            open_orders = order_result
+        else:
+            enriched = False
+            logger.info("Pozisyonlara açık emirler iliştirilemedi: %s", order_result)
+    except asyncio.TimeoutError:
+        enriched = False
+        logger.warning("Binance TR pozisyon maliyeti ve açık emirleri 8 sn'de bitmedi; bakiye döndü")
+    if not isinstance(costs, list):
+        costs = []
+    if len(costs) < len(held):
+        costs = list(costs) + [None] * (len(held) - len(costs))
+    if not isinstance(open_orders, list):
+        open_orders = []
     for h, cost in zip(held, costs):
         price_try = h.get("price_try")
         avg_cost_try = None
@@ -3289,14 +3355,6 @@ async def binance_positions(request: Request):
             h["pnl_try"] = None
             h["pnl_pct"] = None
         h.pop("_cost_symbol", None)
-
-    # Açık emirleri çekip varlıklara iliştir (SL / TP takibi ve koruma durumu)
-    try:
-        cand_syms = [f"{h['asset']}_TRY" for h in holdings] + [f"{h['asset']}_USDT" for h in holdings]
-        open_orders = await asyncio.to_thread(get_open_orders, api_key, api_secret, "", cand_syms)
-    except Exception as exc:
-        logger.info("Pozisyonlara açık emirler iliştirilemedi: %s", exc)
-        open_orders = []
 
     orders_by_asset: dict[str, list[dict]] = {}
     for o in open_orders:
@@ -3319,12 +3377,14 @@ async def binance_positions(request: Request):
 
     holdings.sort(key=lambda h: (h["value_try"] is None, -(h["value_try"] or 0)))
     non_zero_balances = [b for b in balances if float(b.get("free", 0) or 0) > 0 or float(b.get("locked", 0) or 0) > 0]
-    return {
+    payload = {
         "holdings": holdings,
         "balances": non_zero_balances,
         "total_value_try": round(sum(h["value_try"] or 0 for h in holdings), 2),
         "user_stream": stream_status,
     }
+    _positions_cache[user_id] = (time.time() + (_POSITIONS_CACHE_SEC if enriched else 8.0), payload)
+    return payload
 
 
 def _avg_buy_cost(

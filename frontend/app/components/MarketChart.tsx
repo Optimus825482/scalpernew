@@ -340,7 +340,7 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
 }) {
   const { username } = useAuth();
   const binanceSettings = usePoll<BinanceSettings>("/api/binance/settings", 60_000);
-  const positions = usePoll<BinancePositions>(binanceSettings.data?.configured ? "/api/binance/positions" : null, 30_000);
+  const positions = usePoll<BinancePositions>(binanceSettings.data?.configured ? "/api/binance/positions" : null, 30_000, 20_000);
   const [symbol, setSymbol] = useState(normalizeSymbol(initialSymbol));
   const [interval, setInterval] = useState<string>(INTERVALS.includes(initialInterval as typeof INTERVALS[number]) ? initialInterval : "5m");
   const [candles, setCandles] = useState<Candle[]>([]);

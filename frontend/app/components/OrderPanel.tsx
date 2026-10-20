@@ -78,7 +78,7 @@ export default function OrderPanel({
 }) {
   const symbolsQ = usePoll<MarketSymbols>("/api/market-symbols", 300_000);
   const binance = usePoll<BinanceSettings>("/api/binance/settings", 30_000);
-  const balances = usePoll<BinancePositions>(binance.data?.configured ? "/api/binance/positions" : null, 30_000);
+  const balances = usePoll<BinancePositions>(binance.data?.configured ? "/api/binance/positions" : null, 30_000, 20_000);
   const [symbol, setSymbol] = useState<string | null>(initialSymbol ?? null);
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
   const [kind, setKind] = useState<OrderKind>("MARKET");

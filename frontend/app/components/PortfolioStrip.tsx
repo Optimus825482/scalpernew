@@ -24,7 +24,7 @@ export default function PortfolioStrip() {
   const binance = usePoll<BinanceSettings>("/api/binance/settings", 30_000);
   const configured = Boolean(binance.data?.configured);
 
-  const realPositions = usePoll<BinancePositions>(configured ? "/api/binance/positions" : null, 30_000);
+  const realPositions = usePoll<BinancePositions>(configured ? "/api/binance/positions" : null, 30_000, 20_000);
   const today = usePoll<BinanceDayTrades>(configured ? `/api/binance/trades-day?date=${istanbulDate()}` : null, 120_000, 30_000);
 
   if (!configured) return null;
