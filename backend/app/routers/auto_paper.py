@@ -269,14 +269,14 @@ _AUTO_OPEN_PAUSED = frozenset({
 })
 
 
-# Kâra geçen ve beklemesi kısalan kurdele dilimleri. M5 bu kapıdan geçmez.
+# Kâra geçen ve beklemesi kısalan kurdele dilimleri: M5, M15, M30, H1.
 # Aynı taramada birkaçı birden tazeyse ölçülen kenarı daha dolu olan seçilir.
-_RIBBON_PAPER_TF = ("30m", "1h", "15m")
-_RIBBON_HOLD_MINUTES = {"30m": 270.0, "1h": 480.0}
+_RIBBON_PAPER_TF = ("30m", "1h", "15m", "5m")
+_RIBBON_HOLD_MINUTES = {"5m": 150.0, "15m": 150.0, "30m": 270.0, "1h": 480.0}
 
 
 def _ribbon_paper_timeframe(frames) -> str | None:
-    """Paper açılacak kurdele dilimi. M5 ve M1 burada yok."""
+    """Paper açılacak kurdele dilimi. M1 burada yok."""
     fresh = {str(part).strip() for part in frames if str(part).strip()}
     for timeframe in _RIBBON_PAPER_TF:
         if timeframe in fresh:
@@ -285,7 +285,7 @@ def _ribbon_paper_timeframe(frames) -> str | None:
 
 
 def _auto_open_block_reason(notification: dict) -> str | None:
-    """Otomatik paper kapısı. MA yalnız 15 dk, 30 dk ve 1 saat. Zarar eden kaynaklar açılmaz."""
+    """Otomatik paper kapısı. MA 5, 15, 30 dk ve 1 saat. Zarar eden kaynaklar açılmaz."""
     source = _trigger_source(notification)
     if source == "ema_ribbon":
         frames = [
@@ -1200,9 +1200,9 @@ async def _manage_single_trade(trade: dict, now: float, breakeven_trigger_pct: f
         logger.warning("auto_paper %s: ticker BAYAT (yaş=%.1fs > %ss) — bu tur kâr/zarar muhasebesi yapılmıyor",
                        symbol, (now * 1000 - ticker_ts) / 1000.0, config.MAX_TICKER_AGE_SEC)
 
-    # 1. SÜRE KONTROLÜ: genel tavan 2 saattir. M30 ve H1 kurdele işlemi
-    # ölçülen bekleme kadar açık kalır (4,5 saat ve 8 saat); hedef veya stop
-    # daha erken gelirse o yol kapatır. Bayat veya boş ticker kapanışı
+    # 1. SÜRE KONTROLÜ: genel tavan 2 saattir. Kurdele işlemi ölçülen bekleme
+    # kadar açık kalır (M5 ve M15 2,5 saat, M30 4,5 saat, H1 8 saat); hedef
+    # veya stop daha erken gelirse o yol kapatır. Bayat veya boş ticker kapanışı
     # ertelemez; son fiyat, yoksa tepe, o da yoksa giriş kullanılır.
     entry_time = float(trade.get("entry_time") or trade.get("created_at") or 0)
     hold_minutes = (now - entry_time) / 60.0 if entry_time > 0 else 0.0

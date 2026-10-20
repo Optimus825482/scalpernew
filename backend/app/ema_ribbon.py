@@ -2,7 +2,8 @@
 
 Turuncu SMA 7, mavi SMA 20'yi yukarı keser ve ikisi de siyah SMA 99'un
 üstündedir. Fiyatı hareket eden coinlerde kapanmış 5, 15, 30 dakika ve 1 saat
-mumlarda aranır. 1 dakika sinyal üretmez. 30 dakika ve 1 saat hedefi %3'tür.
+mumlarda aranır. 1 dakika sinyal üretmez. 5 dakika hedefi %2,5,
+15 dakika %4, 30 dakika %5 ve 1 saat %4'tür.
 Grafikteki üç ortalama ile aynı hesap: basit aritmetik ortalama.
 """
 from __future__ import annotations
@@ -16,9 +17,9 @@ logger = logging.getLogger("scalper.ema_ribbon")
 
 RIBBON_TIMEFRAMES = ("5m", "15m", "30m", "1h")
 _TF_MS = {"1m": 60_000, "5m": 300_000, "15m": 900_000, "30m": 1_800_000, "1h": 3_600_000}
-RIBBON_TARGET_PCT = {"15m": 4.0, "30m": 5.0, "1h": 4.0}
-RIBBON_STOP_PCT = {"15m": 2.0, "30m": 5.0, "1h": 4.0}
-RIBBON_HORIZON = {"5m": 15, "15m": 15, "30m": 240, "1h": 480}
+RIBBON_TARGET_PCT = {"5m": 2.5, "15m": 4.0, "30m": 5.0, "1h": 4.0}
+RIBBON_STOP_PCT = {"5m": 4.0, "15m": 2.0, "30m": 5.0, "1h": 4.0}
+RIBBON_HORIZON = {"5m": 150, "15m": 15, "30m": 240, "1h": 480}
 RIBBON_FAST = 7
 RIBBON_MID = 20
 RIBBON_SLOW = 99
@@ -295,13 +296,23 @@ def timeframe_combo_ok(
 ) -> bool:
     """Backtestte hem beklemeyi kısaltan hem iki yarıda da artı kalan süzgeç.
 
-    5 dk için böyle bir kombinasyon çıkmadı. 15 dk, 30 dk ve 1 saat kendi
+    5 dk: 14 mum ortalama dalga en az %0,6, RSI 45-65, ADX en az 25.
+    Stochastic RSI 80 sınırı ayrıca durur. 15 dk, 30 dk ve 1 saat kendi
     kuralını kullanır.
     """
-    if timeframe not in {"15m", "30m", "1h"}:
+    if timeframe not in {"5m", "15m", "30m", "1h"}:
         return True
     if highs is None or lows is None or index < 14 or closes[index] <= 0:
         return False
+    if timeframe == "5m":
+        atr = sum((highs[cursor] - lows[cursor]) / closes[cursor] for cursor in range(index - 13, index + 1) if closes[cursor] > 0) / 14.0 * 100.0
+        if atr < 0.6:
+            return False
+        value = None if rsi is None else rsi[index]
+        if value is None or not 45.0 <= value <= 65.0:
+            return False
+        reading = None if adx is None else adx[index]
+        return reading is not None and reading >= 25.0
     if timeframe == "15m":
         span = highs[index] - lows[index]
         if span / closes[index] * 100.0 < 1.0:
@@ -358,9 +369,9 @@ def select_recent_cross(
     mid = sma_series(closes, RIBBON_MID)
     slow = sma_series(closes, RIBBON_SLOW)
     k_line = stoch_rsi_k(closes)
-    rsi = _rsi_series(closes) if timeframe in {"15m", "1h"} else None
+    rsi = _rsi_series(closes) if timeframe in {"5m", "15m", "1h"} else None
     hist = _macd_hist(closes) if timeframe == "30m" else None
-    adx = _adx_series(highs, lows, closes) if timeframe in {"30m", "1h"} and highs is not None and lows is not None else None
+    adx = _adx_series(highs, lows, closes) if timeframe in {"5m", "30m", "1h"} and highs is not None and lows is not None else None
     earliest = int(now_ms) - int(window_ms)
     for index in range(len(closes) - 1, 0, -1):
         if int(stamps[index]) < earliest:

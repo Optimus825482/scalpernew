@@ -220,6 +220,16 @@ function adxLine(candles: Candle[], period = 14): Array<number | null> {
 function comboAllows(interval: string, candles: Candle[], index: number, rsi: Array<number | null>, hist: Array<number | null>, adx: Array<number | null>): boolean {
   const candle = candles[index];
   if (!(candle.close > 0)) return false;
+  if (interval === "5m") {
+    if (index < 13) return false;
+    let wave = 0;
+    for (let cursor = index - 13; cursor <= index; cursor += 1) {
+      if (candles[cursor].close > 0) wave += (candles[cursor].high - candles[cursor].low) / candles[cursor].close;
+    }
+    const rsiValue = rsi[index];
+    const trend = adx[index];
+    return wave / 14 * 100 >= 0.6 && rsiValue != null && rsiValue >= 45 && rsiValue <= 65 && trend != null && trend >= 25;
+  }
   if (interval === "15m") {
     const rsiValue = rsi[index];
     return (candle.high - candle.low) / candle.close * 100 >= 1 && rsiValue != null && rsiValue >= 45 && rsiValue <= 65;
