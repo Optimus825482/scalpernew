@@ -2,10 +2,15 @@
 import unittest
 from unittest import mock
 
-from app.ema_ribbon import bodies_are_flat, ema_series, is_pegged_symbol, ribbon_buy_at, ribbon_is_compressed, select_recent_cross, sma_series, stoch_rsi_too_high, tape_is_flat
+from app.ema_ribbon import bodies_are_flat, ema_series, is_pegged_symbol, recent_rise, ribbon_buy_at, ribbon_is_compressed, select_recent_cross, sma_series, stoch_rsi_too_high, tape_is_flat
 
 
 class EmaRibbonTests(unittest.TestCase):
+    def test_recent_rise_needs_three_bars(self):
+        self.assertFalse(recent_rise([100, 100.1, 100.2], 2))
+        self.assertTrue(recent_rise([100, 100, 100, 100.5], 3))
+        self.assertFalse(recent_rise([100, 100, 100, 100.2], 3))
+
     def test_sma_is_arithmetic_mean(self):
         series = sma_series([1, 2, 3, 4], 3)
         self.assertIsNone(series[0])

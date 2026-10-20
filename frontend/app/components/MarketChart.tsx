@@ -161,8 +161,95 @@ function ribbonBase(symbol: string) {
   return name;
 }
 
+function macdHist(closes: number[]): Array<number | null> {
+  const fast = ema(closes, 12);
+  const slow = ema(closes, 26);
+  const macd = closes.map((_, index) => fast[index] != null && slow[index] != null ? (fast[index] as number) - (slow[index] as number) : null);
+  const raw = macd.filter((value): value is number => value != null);
+  const signal = raw.length ? ema(raw, 9) : [];
+  const out: Array<number | null> = Array(closes.length).fill(null);
+  let cursor = 0;
+  macd.forEach((value, index) => {
+    if (value == null) return;
+    if (signal[cursor] != null) out[index] = value - (signal[cursor] as number);
+    cursor += 1;
+  });
+  return out;
+}
+
+function adxLine(candles: Candle[], period = 14): Array<number | null> {
+  const out: Array<number | null> = Array(candles.length).fill(null);
+  if (candles.length <= period * 2) return out;
+  const trs: number[] = [];
+  const plus: number[] = [];
+  const minus: number[] = [];
+  for (let index = 1; index < candles.length; index += 1) {
+    const current = candles[index];
+    const previous = candles[index - 1];
+    trs.push(Math.max(current.high - current.low, Math.abs(current.high - previous.close), Math.abs(current.low - previous.close)));
+    const up = current.high - previous.high;
+    const down = previous.low - current.low;
+    plus.push(up > down && up > 0 ? up : 0);
+    minus.push(down > up && down > 0 ? down : 0);
+  }
+  let atr = trs.slice(0, period).reduce((sum, value) => sum + value, 0);
+  let plusDm = plus.slice(0, period).reduce((sum, value) => sum + value, 0);
+  let minusDm = minus.slice(0, period).reduce((sum, value) => sum + value, 0);
+  const dx: number[] = [];
+  for (let index = period; index < trs.length; index += 1) {
+    atr = atr - atr / period + trs[index];
+    plusDm = plusDm - plusDm / period + plus[index];
+    minusDm = minusDm - minusDm / period + minus[index];
+    const plusDi = atr > 0 ? 100 * plusDm / atr : 0;
+    const minusDi = atr > 0 ? 100 * minusDm / atr : 0;
+    const total = plusDi + minusDi;
+    dx.push(total === 0 ? 0 : 100 * Math.abs(plusDi - minusDi) / total);
+  }
+  if (dx.length < period) return out;
+  let value = dx.slice(0, period).reduce((sum, item) => sum + item, 0) / period;
+  const start = period * 2;
+  if (start < out.length) out[start] = value;
+  for (let step = period; step < dx.length; step += 1) {
+    value = (value * (period - 1) + dx[step]) / period;
+    const closeIndex = start + (step - period) + 1;
+    if (closeIndex < out.length) out[closeIndex] = value;
+  }
+  return out;
+}
+
+function comboAllows(interval: string, candles: Candle[], index: number, rsi: Array<number | null>, hist: Array<number | null>, adx: Array<number | null>): boolean {
+  const candle = candles[index];
+  if (!(candle.close > 0)) return false;
+  if (interval === "15m") {
+    const rsiValue = rsi[index];
+    return (candle.high - candle.low) / candle.close * 100 >= 1 && rsiValue != null && rsiValue >= 45 && rsiValue <= 65;
+  }
+  if (interval === "30m") {
+    const previous = hist[index - 1];
+    const current = hist[index];
+    const trend = adx[index];
+    return previous != null && current != null && current > 0 && current > previous && trend != null && trend >= 20;
+  }
+  if (interval === "1h") {
+    const earlier = candles[index - 3];
+    if (!earlier || !(earlier.close > 0) || candle.close / earlier.close - 1 < 0.004) return false;
+    let wave = 0;
+    for (let cursor = index - 13; cursor <= index; cursor += 1) {
+      if (candles[cursor].close > 0) wave += (candles[cursor].high - candles[cursor].low) / candles[cursor].close;
+    }
+    const rsiValue = rsi[index];
+    const trend = adx[index];
+    return wave / 14 * 100 >= 1.2 && rsiValue != null && rsiValue >= 45 && rsiValue <= 65 && trend != null && trend >= 20;
+  }
+  return true;
+}
+
 function ribbonBuyIndexes(symbol: string, interval: string, candles: Candle[], fast: Array<number | null>, mid: Array<number | null>, slow: Array<number | null>, stochK: Array<number | null>): number[] {
   if (interval === "1m" || PEGGED_BASES.has(ribbonBase(symbol))) return [];
+  const closes = candles.map((candle) => candle.close);
+  const rsi = wilderRsi(closes, 14);
+  const hist = macdHist(closes);
+  const adx = adxLine(candles);
   const hits: number[] = [];
   const lastClosed = candles.length - 1;
   for (let index = 1; index < lastClosed; index += 1) {
@@ -173,10 +260,11 @@ function ribbonBuyIndexes(symbol: string, interval: string, candles: Candle[], f
     const currSlow = slow[index];
     if (prevFast == null || prevMid == null || currFast == null || currMid == null || currSlow == null) continue;
     if (!(prevFast <= prevMid && currFast > currMid && currFast > currSlow && currMid > currSlow)) continue;
-    if (interval !== "1m") {
+    if (interval !== "1m" && interval !== "15m") {
       const stoch = stochK[index];
       if (stoch == null || stoch > STOCH_RSI_HIGH) continue;
     }
+    if (!comboAllows(interval, candles, index, rsi, hist, adx)) continue;
     const price = candles[index]?.close ?? 0;
     if (!(price > 0)) continue;
     const span = (Math.max(currFast, currMid, currSlow) - Math.min(currFast, currMid, currSlow)) / price * 100;
@@ -839,7 +927,7 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
           </div>
         )}
         {(signalMarks.length > 0 || config.enabled.includes("ema3")) && (
-          <span className="text-[10px] font-medium text-ink-500">son bildirim · son hedef · yeşil BUY: SMA 7/20/99 kesişimi, 5 ve 15 dk · 1 dk sinyal yok · Stoch RSI 80 altı · Stoch 20 altı yeşil ok, 80 üstü kırmızı ok</span>
+          <span className="text-[10px] font-medium text-ink-500">son bildirim · son hedef · yeşil BUY: SMA 7/20/99 kesişimi, 5/15/30 dk ve 1 saat · 1 dk sinyal yok · Stoch RSI 80 altı · Stoch 20 altı yeşil ok, 80 üstü kırmızı ok</span>
         )}
       </div>
 

@@ -88,7 +88,7 @@ class Config:
     # Startup and top-gainer hydration use only the timeframes that active
     # paper paths consume. Other chart/research timeframes are hydrated on
     # demand and do not need to block process startup.
-    PRIORITY_TIMEFRAMES = ("1m", "5m", "15m", "1h", "4h", "1d")
+    PRIORITY_TIMEFRAMES = ("1m", "5m", "15m", "30m", "1h", "4h", "1d")
 
     # ---- Borsa kimliği (2026-09-29, global'den port) ------------------------
     # Global repo aynı kod tabanını iki borsada çalıştırıyor (EXCHANGE

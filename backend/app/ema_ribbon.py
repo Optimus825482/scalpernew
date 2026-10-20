@@ -1,8 +1,8 @@
 """SMA 7/20/99 kurdele alımı.
 
 Turuncu SMA 7, mavi SMA 20'yi yukarı keser ve ikisi de siyah SMA 99'un
-üstündedir. Fiyatı hareket eden coinlerde kapanmış 5 ve 15 dakikalık
-mumlarda aranır. 1 dakika sinyal üretmez.
+üstündedir. Fiyatı hareket eden coinlerde kapanmış 5, 15, 30 dakika ve 1 saat
+mumlarda aranır. 1 dakika sinyal üretmez. 30 dakika ve 1 saat hedefi %3'tür.
 Grafikteki üç ortalama ile aynı hesap: basit aritmetik ortalama.
 """
 from __future__ import annotations
@@ -14,8 +14,11 @@ from app.config import config
 
 logger = logging.getLogger("scalper.ema_ribbon")
 
-RIBBON_TIMEFRAMES = ("5m", "15m")
-_TF_MS = {"1m": 60_000, "5m": 300_000, "15m": 900_000}
+RIBBON_TIMEFRAMES = ("5m", "15m", "30m", "1h")
+_TF_MS = {"1m": 60_000, "5m": 300_000, "15m": 900_000, "30m": 1_800_000, "1h": 3_600_000}
+RIBBON_TARGET_PCT = {"15m": 4.0, "30m": 5.0, "1h": 4.0}
+RIBBON_STOP_PCT = {"15m": 2.0, "30m": 5.0, "1h": 4.0}
+RIBBON_HORIZON = {"5m": 15, "15m": 15, "30m": 240, "1h": 480}
 RIBBON_FAST = 7
 RIBBON_MID = 20
 RIBBON_SLOW = 99
@@ -216,6 +219,124 @@ def tape_is_flat(highs: list[float], lows: list[float], index: int, lookback: in
     return (max(window_high) - low) / low * 100.0 < min_range_pct
 
 
+def _rsi_series(closes: list[float], period: int = 14) -> list[float | None]:
+    return _wilder_rsi(closes, period)
+
+
+def _macd_hist(closes: list[float]) -> list[float | None]:
+    fast = ema_series(closes, 12)
+    slow = ema_series(closes, 26)
+    macd = [None if fast[i] is None or slow[i] is None else fast[i] - slow[i] for i in range(len(closes))]
+    raw = [value for value in macd if value is not None]
+    signal = ema_series(raw, 9) if raw else []
+    out: list[float | None] = [None] * len(closes)
+    cursor = 0
+    for index, value in enumerate(macd):
+        if value is None:
+            continue
+        if cursor < len(signal) and signal[cursor] is not None:
+            out[index] = value - signal[cursor]
+        cursor += 1
+    return out
+
+
+def _adx_series(highs: list[float], lows: list[float], closes: list[float], period: int = 14) -> list[float | None]:
+    out: list[float | None] = [None] * len(closes)
+    if len(closes) <= period * 2:
+        return out
+    trs: list[float] = []
+    plus: list[float] = []
+    minus: list[float] = []
+    for index in range(1, len(closes)):
+        tr = max(highs[index] - lows[index], abs(highs[index] - closes[index - 1]), abs(lows[index] - closes[index - 1]))
+        up = highs[index] - highs[index - 1]
+        down = lows[index - 1] - lows[index]
+        trs.append(tr)
+        plus.append(up if up > down and up > 0 else 0.0)
+        minus.append(down if down > up and down > 0 else 0.0)
+    atr = sum(trs[:period])
+    plus_dm = sum(plus[:period])
+    minus_dm = sum(minus[:period])
+    dx: list[float] = []
+    for index in range(period, len(trs)):
+        atr = atr - atr / period + trs[index]
+        plus_dm = plus_dm - plus_dm / period + plus[index]
+        minus_dm = minus_dm - minus_dm / period + minus[index]
+        if atr <= 0:
+            dx.append(0.0)
+            continue
+        plus_di = 100.0 * plus_dm / atr
+        minus_di = 100.0 * minus_dm / atr
+        total = plus_di + minus_di
+        dx.append(0.0 if total == 0 else 100.0 * abs(plus_di - minus_di) / total)
+    if len(dx) < period:
+        return out
+    value = sum(dx[:period]) / period
+    start = period + period
+    if start < len(out):
+        out[start] = value
+    for step, move in enumerate(dx[period:], start=1):
+        value = (value * (period - 1) + move) / period
+        close_index = start + step
+        if close_index < len(out):
+            out[close_index] = value
+    return out
+
+
+def timeframe_combo_ok(
+    timeframe: str,
+    closes: list[float],
+    highs: list[float] | None,
+    lows: list[float] | None,
+    index: int,
+    rsi: list[float | None] | None = None,
+    hist: list[float | None] | None = None,
+    adx: list[float | None] | None = None,
+) -> bool:
+    """Backtestte hem beklemeyi kısaltan hem iki yarıda da artı kalan süzgeç.
+
+    5 dk için böyle bir kombinasyon çıkmadı. 15 dk, 30 dk ve 1 saat kendi
+    kuralını kullanır.
+    """
+    if timeframe not in {"15m", "30m", "1h"}:
+        return True
+    if highs is None or lows is None or index < 14 or closes[index] <= 0:
+        return False
+    if timeframe == "15m":
+        span = highs[index] - lows[index]
+        if span / closes[index] * 100.0 < 1.0:
+            return False
+        value = None if rsi is None else rsi[index]
+        return value is not None and 45.0 <= value <= 65.0
+    if timeframe == "30m":
+        previous = None if hist is None or index == 0 else hist[index - 1]
+        current = None if hist is None else hist[index]
+        if previous is None or current is None or not (current > 0 and current > previous):
+            return False
+        reading = None if adx is None else adx[index]
+        return reading is not None and reading >= 20.0
+    if not recent_rise(closes, index):
+        return False
+    atr = sum((highs[cursor] - lows[cursor]) / closes[cursor] for cursor in range(index - 13, index + 1) if closes[cursor] > 0) / 14.0 * 100.0
+    if atr < 1.2:
+        return False
+    value = None if rsi is None else rsi[index]
+    if value is None or not 45.0 <= value <= 65.0:
+        return False
+    reading = None if adx is None else adx[index]
+    return reading is not None and reading >= 20.0
+
+
+def recent_rise(closes: list[float], index: int, bars: int = 3, min_return: float = 0.004) -> bool:
+    """Son birkaç mum çoktan yukarı gittiyse True. 30 dk kesişiminde beklemeyi kısaltır."""
+    if index < bars:
+        return False
+    base = closes[index - bars]
+    if base <= 0:
+        return False
+    return closes[index] / base - 1.0 >= min_return
+
+
 def select_recent_cross(
     closes: list[float],
     stamps: list[int],
@@ -225,6 +346,7 @@ def select_recent_cross(
     lows: list[float] | None = None,
     opens: list[float] | None = None,
     apply_stoch: bool = True,
+    timeframe: str = "",
 ) -> int | None:
     """Penceredeki en yeni hareketli kurdele alımı. Durağan kesişim yok sayılır.
 
@@ -236,6 +358,9 @@ def select_recent_cross(
     mid = sma_series(closes, RIBBON_MID)
     slow = sma_series(closes, RIBBON_SLOW)
     k_line = stoch_rsi_k(closes)
+    rsi = _rsi_series(closes) if timeframe in {"15m", "1h"} else None
+    hist = _macd_hist(closes) if timeframe == "30m" else None
+    adx = _adx_series(highs, lows, closes) if timeframe in {"30m", "1h"} and highs is not None and lows is not None else None
     earliest = int(now_ms) - int(window_ms)
     for index in range(len(closes) - 1, 0, -1):
         if int(stamps[index]) < earliest:
@@ -243,6 +368,8 @@ def select_recent_cross(
         if not ribbon_buy_at(fast, mid, slow, index):
             continue
         if apply_stoch and stoch_rsi_too_high(k_line[index] if index < len(k_line) else None):
+            continue
+        if timeframe and not timeframe_combo_ok(timeframe, closes, highs, lows, index, rsi, hist, adx):
             continue
         curr_fast = fast[index]
         curr_mid = mid[index]
@@ -309,10 +436,13 @@ def _scan_timeframe(symbol: str, history: dict, timeframe: str, now_ms: int, tar
     except (TypeError, ValueError):
         return None
     window_ms = max(RIBBON_LIST_WINDOW_MS, _TF_MS.get(timeframe, 60_000) * 2)
+    if timeframe in RIBBON_TARGET_PCT:
+        target = RIBBON_TARGET_PCT[timeframe]
     index = select_recent_cross(
         closes, stamp_ms, now_ms, window_ms=window_ms,
         highs=highs, lows=lows, opens=opens,
-        apply_stoch=timeframe != "1m",
+        apply_stoch=timeframe not in {"1m", "15m"},
+        timeframe=timeframe,
     )
     if index is None:
         return None
@@ -324,7 +454,8 @@ def _scan_timeframe(symbol: str, history: dict, timeframe: str, now_ms: int, tar
         "symbol": symbol,
         "price": price,
         "target_pct": target,
-        "horizon_minutes": RIBBON_HORIZON_MINUTES,
+        "stop_pct": RIBBON_STOP_PCT.get(timeframe),
+        "horizon_minutes": RIBBON_HORIZON.get(timeframe, RIBBON_HORIZON_MINUTES),
         "ceiling_pct": target,
         "ceiling_price": round(price * (1 + target / 100.0), 8),
         "potential_pct": target,

@@ -269,16 +269,31 @@ _AUTO_OPEN_PAUSED = frozenset({
 })
 
 
+# Kâra geçen ve beklemesi kısalan kurdele dilimleri. M5 bu kapıdan geçmez.
+# Aynı taramada birkaçı birden tazeyse ölçülen kenarı daha dolu olan seçilir.
+_RIBBON_PAPER_TF = ("30m", "1h", "15m")
+_RIBBON_HOLD_MINUTES = {"30m": 270.0, "1h": 480.0}
+
+
+def _ribbon_paper_timeframe(frames) -> str | None:
+    """Paper açılacak kurdele dilimi. M5 ve M1 burada yok."""
+    fresh = {str(part).strip() for part in frames if str(part).strip()}
+    for timeframe in _RIBBON_PAPER_TF:
+        if timeframe in fresh:
+            return timeframe
+    return None
+
+
 def _auto_open_block_reason(notification: dict) -> str | None:
-    """Otomatik paper kapısı. MA yalnız 15 dk. Zarar eden kaynaklar açılmaz."""
+    """Otomatik paper kapısı. MA yalnız 15 dk, 30 dk ve 1 saat. Zarar eden kaynaklar açılmaz."""
     source = _trigger_source(notification)
     if source == "ema_ribbon":
-        frames = {
+        frames = [
             part.strip()
             for part in (_ribbon_timeframe_text(notification) or "").split(",")
             if part.strip()
-        }
-        if "15m" not in frames:
+        ]
+        if _ribbon_paper_timeframe(frames) is None:
             return "ma_m15_only"
         return None
     if source in _AUTO_OPEN_PAUSED:
@@ -817,6 +832,9 @@ async def _open_new_trade(symbol: str, notification: dict, current_price: float,
                             balance_pct=round(balance_pct * 100, 2))
 
         sl_pct = float(settings.get("stop_loss_pct", config.AUTO_PAPER_SL_PCT_DEFAULT)) / 100.0
+        custom_stop = notification.get("stop_pct")
+        if custom_stop not in (None, ""):
+            sl_pct = float(custom_stop) / 100.0
         target_pct = _effective_target_pct(notification)
         if target_pct <= 0:
             target_pct = float(settings.get("default_target_pct", config.AUTO_PAPER_DEFAULT_TARGET_PCT))
@@ -1182,20 +1200,26 @@ async def _manage_single_trade(trade: dict, now: float, breakeven_trigger_pct: f
         logger.warning("auto_paper %s: ticker BAYAT (yaş=%.1fs > %ss) — bu tur kâr/zarar muhasebesi yapılmıyor",
                        symbol, (now * 1000 - ticker_ts) / 1000.0, config.MAX_TICKER_AGE_SEC)
 
-    # 1. SÜRE KONTROLÜ: 2 saat dolunca kâr/zarar ve fiyat tazeliği bakılmaz.
-    # Kayıtlı ayar daha uzunsa da 120 dakikayı geçemez. Bayat veya boş ticker
-    # kapanışı ertelemez; son fiyat, yoksa tepe, o da yoksa giriş kullanılır.
+    # 1. SÜRE KONTROLÜ: genel tavan 2 saattir. M30 ve H1 kurdele işlemi
+    # ölçülen bekleme kadar açık kalır (4,5 saat ve 8 saat); hedef veya stop
+    # daha erken gelirse o yol kapatır. Bayat veya boş ticker kapanışı
+    # ertelemez; son fiyat, yoksa tepe, o da yoksa giriş kullanılır.
     entry_time = float(trade.get("entry_time") or trade.get("created_at") or 0)
     hold_minutes = (now - entry_time) / 60.0 if entry_time > 0 else 0.0
     configured_hold = float((settings or {}).get("max_hold_minutes", getattr(config, "AUTO_PAPER_MAX_HOLD_MINUTES", 120.0)) or 0)
     hard_cap = float(getattr(config, "AUTO_PAPER_MAX_HOLD_MINUTES", 120.0) or 120.0)
     max_hold_minutes = hard_cap if configured_hold <= 0 else min(configured_hold, hard_cap)
+    ribbon_tf = str(trade.get("trigger_timeframe") or "").split(",")[0].strip()
+    if str(trade.get("trigger_source") or "") == "ema_ribbon":
+        ribbon_hold = _RIBBON_HOLD_MINUTES.get(ribbon_tf)
+        if ribbon_hold:
+            max_hold_minutes = max(max_hold_minutes, ribbon_hold)
     if hold_minutes >= max_hold_minutes:
         if current_price > 0:
             exit_price = current_price
         else:
             exit_price = float(trade.get("peak_price") or entry_price)
-        logger.info("auto_paper %s: 2 saat doldu (%.1f dk >= %.1f dk) — kâr/zarara bakılmadan kapatılıyor (çıkış=%.6f)",
+        logger.info("auto_paper %s: süre doldu (%.1f dk >= %.1f dk) — kâr/zarara bakılmadan kapatılıyor (çıkış=%.6f)",
                     symbol, hold_minutes, max_hold_minutes, exit_price)
         await _close_trade(trade_id, symbol, exit_price, now, "max_duration")
         return
@@ -1699,7 +1723,7 @@ async def open_ribbon_candidates(candidates: list[dict]) -> int:
             bar_ms = 0
         if bar_ms <= 0:
             continue
-        from app.ema_ribbon import ribbon_bar_is_fresh
+        from app.ema_ribbon import RIBBON_HORIZON, RIBBON_STOP_PCT, RIBBON_TARGET_PCT, ribbon_bar_is_fresh
         timeframe = str(raw.get("ribbon_timeframe") or "1m")
         fresh_frames: list[str] = []
         if ribbon_bar_is_fresh(bar_ms, timeframe=timeframe):
@@ -1713,7 +1737,8 @@ async def open_ribbon_candidates(candidates: list[dict]) -> int:
             if event_tf in fresh_frames or not ribbon_bar_is_fresh(event_bar, timeframe=event_tf):
                 continue
             fresh_frames.append(event_tf)
-        if "15m" not in fresh_frames:
+        paper_tf = _ribbon_paper_timeframe(fresh_frames)
+        if paper_tf is None:
             continue
         symbol = str(raw.get("symbol") or "").upper()
         if not symbol or symbol in seen:
@@ -1734,18 +1759,19 @@ async def open_ribbon_candidates(candidates: list[dict]) -> int:
             "symbol": symbol,
             "score": score,
             "price": price,
-            "target_pct": raw.get("target_pct"),
-            "horizon_minutes": raw.get("horizon_minutes") or 15,
+            "target_pct": RIBBON_TARGET_PCT[paper_tf],
+            "stop_pct": RIBBON_STOP_PCT[paper_tf],
+            "horizon_minutes": RIBBON_HORIZON.get(paper_tf) or 15,
             "mode": "unified",
             "passes": True,
             "detected_at": time.time(),
             "strategy": "ema_ribbon",
             "sources": ["ema_ribbon"],
-            "trigger_timeframe": "15m",
+            "trigger_timeframe": paper_tf,
         })
         if isinstance(result, dict) and result.get("status") == "opened":
             opened += 1
-            logger.info("auto_paper kurdele girişi: %s", symbol)
+            logger.info("auto_paper kurdele girişi: %s %s", symbol, paper_tf)
     return opened
 
 
