@@ -1090,6 +1090,14 @@ class FourBadgeGateTests(unittest.TestCase):
         self.assertTrue(auto_paper._is_four_badge(fresh))
         self.assertFalse(auto_paper._is_four_badge(stale))
 
+    def test_single_rising_badge_is_allowed(self):
+        solo = {"strategy": "rising", "signal_sources": ["rising"], "velocity_score": 74}
+        mixed = {"signal_sources": ["rising", "velocity"], "velocity_score": 90}
+        self.assertEqual(74.0, auto_paper._solo_rising_score(solo))
+        self.assertIsNone(auto_paper._solo_rising_score(mixed))
+        self.assertIsNone(auto_paper._auto_open_block_reason(solo))
+        self.assertEqual("rising", auto_paper._trigger_source(solo))
+
 
 if __name__ == "__main__":
     unittest.main()

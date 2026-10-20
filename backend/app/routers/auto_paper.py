@@ -263,6 +263,19 @@ def _is_four_badge(notification: dict) -> bool:
     return _FOUR_CORE <= set(_source_codes(notification)) and _mtf_badge(notification)
 
 
+def _solo_rising_score(notification: dict) -> float | None:
+    """Kartta yalnız Yükseliş rozeti varsa onun skoru. Başka motor varsa None."""
+    codes = set(_source_codes(notification))
+    if not codes and str(notification.get("strategy") or notification.get("source_only") or "").lower() == "rising":
+        codes = {"rising"}
+    if codes != {"rising"}:
+        return None
+    try:
+        return float(notification.get("panel_score") or notification.get("velocity_score") or notification.get("score") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _trigger_source(notification: dict) -> str:
     """İşlemi açan sinyalin kısa kodu. Raporlarda kaynağa göre gruplanır."""
     if _is_four_badge(notification):
@@ -690,10 +703,11 @@ IKI OTONOM YOLUN KAPI/OLCEK KARSILASTIRMASI (R3-08 — DOKUMANTASYON):
                         "açılış engellendi", symbol, freshness.get("age_sec"))
             return _blocked(symbol, "stale_ticker", price=current_price, age_sec=freshness.get("age_sec"))
 
-        # MACD MTF Konfluans Kapısı: ZAYIF MTF / Yüksek sahte kırılım (%75 fake) filtresi
+        # MACD MTF Konfluans Kapısı: ZAYIF MTF / Yüksek sahte kırılım (%75 fake) filtresi.
+        # Tek rozet Yükseliş bu kapıdan geçmez; kartta MTF rozeti yoktur.
         block_weak_mtf = bool(settings.get("block_weak_mtf", True))
         min_mtf_confluence = float(settings.get("min_mtf_confluence", 45.0))
-        if block_weak_mtf:
+        if block_weak_mtf and _trigger_source(notification) != "rising":
             mtf_verdict = notification.get("macd_mtf_verdict")
             mtf_confluence = notification.get("macd_mtf_confluence")
             if mtf_verdict is None or mtf_confluence is None:
@@ -1722,7 +1736,13 @@ async def open_from_scan_candidates(candidates: list[dict]) -> int:
             score = float(raw.get("scan_score") or raw.get("quality_score") or raw.get("panel_score") or 0)
         except (TypeError, ValueError):
             score = 0.0
-        if score < min_score:
+        rising_score = _solo_rising_score(raw)
+        if rising_score is not None:
+            rising_floor = float(getattr(config, "RISING_AUTO_MIN_SCORE", 70) or 70)
+            if rising_score < rising_floor:
+                continue
+            score = max(score, rising_score)
+        elif score < min_score:
             continue
         seen.add(symbol)
         ranked.append((score, raw))
