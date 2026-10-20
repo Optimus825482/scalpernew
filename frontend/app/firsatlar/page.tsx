@@ -294,7 +294,7 @@ function LiveFeed({
                       {view.sources.length ? (
                         view.sources.slice(0, 3).map((s) => (
                           <Badge key={s} tone="accent">
-                            {s === "EMA Kurdele" && view.ribbonTimeframes.length ? `${s} ${ribbonTimeframeNote(view.ribbonTimeframes)}` : s}
+                            {s === "MA Kurdele" && view.ribbonTimeframes.length ? `${s} ${ribbonTimeframeNote(view.ribbonTimeframes)}` : s}
                           </Badge>
                         ))
                       ) : (

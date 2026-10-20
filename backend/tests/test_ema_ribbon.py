@@ -2,10 +2,17 @@
 import unittest
 from unittest import mock
 
-from app.ema_ribbon import bodies_are_flat, ema_series, is_pegged_symbol, ribbon_buy_at, ribbon_is_compressed, select_recent_cross, stoch_rsi_too_high, tape_is_flat
+from app.ema_ribbon import bodies_are_flat, ema_series, is_pegged_symbol, ribbon_buy_at, ribbon_is_compressed, select_recent_cross, sma_series, stoch_rsi_too_high, tape_is_flat
 
 
 class EmaRibbonTests(unittest.TestCase):
+    def test_sma_is_arithmetic_mean(self):
+        series = sma_series([1, 2, 3, 4], 3)
+        self.assertIsNone(series[0])
+        self.assertIsNone(series[1])
+        self.assertAlmostEqual(series[2], 2.0)
+        self.assertAlmostEqual(series[3], 3.0)
+
     def test_ema_seed_matches_chart(self):
         series = ema_series([1, 2, 3, 4], 3)
         self.assertIsNone(series[0])
@@ -37,7 +44,7 @@ class EmaRibbonTests(unittest.TestCase):
         fast = [1.0, 1.0, 2.0]
         mid = [1.0, 2.0, 1.0]
         slow = [0.0, 0.0, 0.0]
-        with mock.patch("app.ema_ribbon.ema_series", side_effect=[fast, mid, slow]):
+        with mock.patch("app.ema_ribbon.sma_series", side_effect=[fast, mid, slow]):
             self.assertIsNone(select_recent_cross(closes, stamps, now_ms=20_000, window_ms=1_000))
 
     def test_recent_cross_is_kept(self):
@@ -46,7 +53,7 @@ class EmaRibbonTests(unittest.TestCase):
         fast = [1.0, 1.0, 2.0]
         mid = [1.0, 2.0, 1.0]
         slow = [0.0, 0.0, 0.0]
-        with mock.patch("app.ema_ribbon.ema_series", side_effect=[fast, mid, slow]):
+        with mock.patch("app.ema_ribbon.sma_series", side_effect=[fast, mid, slow]):
             self.assertEqual(select_recent_cross(closes, stamps, now_ms=3_500, window_ms=1_000), 2)
 
     def test_pegged_and_flat_tape_are_skipped(self):
@@ -69,7 +76,7 @@ class EmaRibbonTests(unittest.TestCase):
         fast = [1.0, 1.000, 1.001]
         mid = [1.0, 1.002, 1.000]
         slow = [1.0, 1.000, 1.000]
-        with mock.patch("app.ema_ribbon.ema_series", side_effect=[fast, mid, slow]):
+        with mock.patch("app.ema_ribbon.sma_series", side_effect=[fast, mid, slow]):
             self.assertIsNone(select_recent_cross(closes, stamps, now_ms=3_500, window_ms=5_000))
 
     def test_m1_ignores_stoch_rsi_ceiling(self):
@@ -78,7 +85,7 @@ class EmaRibbonTests(unittest.TestCase):
         fast = [1.0, 1.0, 2.0]
         mid = [1.0, 2.0, 1.0]
         slow = [0.0, 0.0, 0.0]
-        with mock.patch("app.ema_ribbon.ema_series", side_effect=[fast, mid, slow]), \
+        with mock.patch("app.ema_ribbon.sma_series", side_effect=[fast, mid, slow]), \
              mock.patch("app.ema_ribbon.stoch_rsi_k", return_value=[None, None, 91.0]):
             self.assertEqual(
                 select_recent_cross(closes, stamps, now_ms=3_500, window_ms=5_000, apply_stoch=False),
@@ -94,7 +101,7 @@ class EmaRibbonTests(unittest.TestCase):
         fast = [1.0, 1.0, 2.0]
         mid = [1.0, 2.0, 1.0]
         slow = [0.0, 0.0, 0.0]
-        with mock.patch("app.ema_ribbon.ema_series", side_effect=[fast, mid, slow]), \
+        with mock.patch("app.ema_ribbon.sma_series", side_effect=[fast, mid, slow]), \
              mock.patch("app.ema_ribbon.stoch_rsi_k", return_value=[None, None, 91.0]):
             self.assertIsNone(select_recent_cross(closes, stamps, now_ms=3_500, window_ms=5_000))
 

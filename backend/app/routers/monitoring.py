@@ -4396,8 +4396,8 @@ async def _persist_ribbon_notifications(candidates: list) -> None:
         for bar_ms, event_tf in fresh_events:
             fresh.append({
             "symbol": symbol,
-            "title": "EMA Kurdele AL",
-            "message": f"EMA 7, EMA 20'yi EMA 99 üzerinde yukarı kesti ({event_tf})",
+            "title": "MA Kurdele AL",
+            "message": f"SMA 7, SMA 20'yi SMA 99 üzerinde yukarı kesti ({event_tf})",
             "score": score,
             "target_pct": target,
             "price": price,

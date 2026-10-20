@@ -146,7 +146,7 @@ export default function Home() {
           unique.set(view.symbol, {
             ...current,
             sourceCodes: current.sourceCodes.includes("ema_ribbon") ? current.sourceCodes : [...current.sourceCodes, "ema_ribbon"],
-            sources: current.sources.includes("EMA Kurdele") ? current.sources : [...current.sources, "EMA Kurdele"],
+            sources: current.sources.includes("MA Kurdele") ? current.sources : [...current.sources, "MA Kurdele"],
             ribbonTimeframes: frames,
           });
         }

@@ -13,7 +13,7 @@ const SOURCE_LABELS: Record<string, string> = {
   jump: "MACD Sıçrama",
   early: "Erken Sıçrama",
   rising: "Yükseliş Eğilimi",
-  ema_ribbon: "EMA Kurdele",
+  ema_ribbon: "MA Kurdele",
   trend_devam: "Trend Devam",
   unified: "Birleşik tarama",
   bilinmiyor: "Kaynak yok",

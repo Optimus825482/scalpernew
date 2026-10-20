@@ -162,7 +162,7 @@ function ribbonBase(symbol: string) {
 }
 
 function ribbonBuyIndexes(symbol: string, interval: string, candles: Candle[], fast: Array<number | null>, mid: Array<number | null>, slow: Array<number | null>, stochK: Array<number | null>): number[] {
-  if (PEGGED_BASES.has(ribbonBase(symbol))) return [];
+  if (interval === "1m" || PEGGED_BASES.has(ribbonBase(symbol))) return [];
   const hits: number[] = [];
   const lastClosed = candles.length - 1;
   for (let index = 1; index < lastClosed; index += 1) {
@@ -839,7 +839,7 @@ export function MarketChart({ initialSymbol = "BTCUSDT", initialInterval = "5m",
           </div>
         )}
         {(signalMarks.length > 0 || config.enabled.includes("ema3")) && (
-          <span className="text-[10px] font-medium text-ink-500">son bildirim · son hedef · yeşil BUY: SMA 7/20/99 kesişimi · Stoch RSI 80 altı 5 ve 15 dk’da, 1 dk’da aranmaz · Stoch 20 altı yeşil ok, 80 üstü kırmızı ok</span>
+          <span className="text-[10px] font-medium text-ink-500">son bildirim · son hedef · yeşil BUY: SMA 7/20/99 kesişimi, 5 ve 15 dk · 1 dk sinyal yok · Stoch RSI 80 altı · Stoch 20 altı yeşil ok, 80 üstü kırmızı ok</span>
         )}
       </div>
 

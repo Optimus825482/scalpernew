@@ -261,6 +261,31 @@ def _ribbon_timeframe_text(notification: dict) -> str | None:
     return ",".join(seen) or None
 
 
+# Zarar raporu (2026-10-20): bu kaynaklar otomatik paper açmaz.
+# Taramada ve bildiriminde görünmeye devam ederler.
+_AUTO_OPEN_PAUSED = frozenset({
+    "velocity", "jump", "early", "daily_momentum", "trend_devam", "pulse",
+    "macd_mtf", "macd_snapshot",
+})
+
+
+def _auto_open_block_reason(notification: dict) -> str | None:
+    """Otomatik paper kapısı. MA yalnız 15 dk. Zarar eden kaynaklar açılmaz."""
+    source = _trigger_source(notification)
+    if source == "ema_ribbon":
+        frames = {
+            part.strip()
+            for part in (_ribbon_timeframe_text(notification) or "").split(",")
+            if part.strip()
+        }
+        if "15m" not in frames:
+            return "ma_m15_only"
+        return None
+    if source in _AUTO_OPEN_PAUSED:
+        return "source_paused"
+    return None
+
+
 _RIBBON_TF_RE = re.compile(r"ema-ribbon-[A-Z0-9]+-(1m|3m|5m|15m|30m|1h|4h|1d)-\d+", re.IGNORECASE)
 _RIBBON_MSG_RE = re.compile(r"\((1m|3m|5m|15m|30m|1h|4h|1d)\)", re.IGNORECASE)
 
@@ -362,6 +387,12 @@ IKI OTONOM YOLUN KAPI/OLCEK KARSILASTIRMASI (R3-08 — DOKUMANTASYON):
         symbol = str(notification.get("symbol") or "").upper()
         if not symbol:
             return None
+
+        block = _auto_open_block_reason(notification)
+        if block:
+            logger.info("auto_paper %s: otomatik açılış kapalı (%s, kaynak %s)",
+                        symbol, block, _trigger_source(notification))
+            return _blocked(symbol, block, source=_trigger_source(notification))
 
         score = float(notification.get("score") or 0)
         min_score = float(settings.get("min_score", config.AUTO_PAPER_MIN_SCORE_DEFAULT))
@@ -1682,7 +1713,7 @@ async def open_ribbon_candidates(candidates: list[dict]) -> int:
             if event_tf in fresh_frames or not ribbon_bar_is_fresh(event_bar, timeframe=event_tf):
                 continue
             fresh_frames.append(event_tf)
-        if not fresh_frames:
+        if "15m" not in fresh_frames:
             continue
         symbol = str(raw.get("symbol") or "").upper()
         if not symbol or symbol in seen:
@@ -1710,7 +1741,7 @@ async def open_ribbon_candidates(candidates: list[dict]) -> int:
             "detected_at": time.time(),
             "strategy": "ema_ribbon",
             "sources": ["ema_ribbon"],
-            "trigger_timeframe": ",".join(fresh_frames),
+            "trigger_timeframe": "15m",
         })
         if isinstance(result, dict) and result.get("status") == "opened":
             opened += 1

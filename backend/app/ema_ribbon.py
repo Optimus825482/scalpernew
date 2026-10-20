@@ -1,9 +1,9 @@
-"""EMA 7/20/99 kurdele alımı.
+"""SMA 7/20/99 kurdele alımı.
 
-Turuncu EMA 7, mavi EMA 20'yi yukarı keser ve ikisi de siyah EMA 99'un
-üstündedir. Fiyatı hareket eden coinlerde kapanmış 1, 5 ve 15 dakikalık
-mumlarda aranır. Stochastic RSI 80 sınırı 1 dakikada uygulanmaz.
-Grafikteki EMA ile aynı tohum kullanılır: ilk değer periyotluk SMA.
+Turuncu SMA 7, mavi SMA 20'yi yukarı keser ve ikisi de siyah SMA 99'un
+üstündedir. Fiyatı hareket eden coinlerde kapanmış 5 ve 15 dakikalık
+mumlarda aranır. 1 dakika sinyal üretmez.
+Grafikteki üç ortalama ile aynı hesap: basit aritmetik ortalama.
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from app.config import config
 
 logger = logging.getLogger("scalper.ema_ribbon")
 
-RIBBON_TIMEFRAMES = ("1m", "5m", "15m")
+RIBBON_TIMEFRAMES = ("5m", "15m")
 _TF_MS = {"1m": 60_000, "5m": 300_000, "15m": 900_000}
 RIBBON_FAST = 7
 RIBBON_MID = 20
@@ -35,6 +35,21 @@ PEGGED_BASES = frozenset({
     "USDT", "USDC", "FDUSD", "TUSD", "BUSD", "DAI", "USDP", "EUR",
     "PAXG", "XAUT", "PAX", "USD1", "RLUSD",
 })
+
+
+def sma_series(values: list[float], period: int) -> list[float | None]:
+    """Grafikteki SMA 7/20/99 ile aynı basit ortalama."""
+    output: list[float | None] = [None] * len(values)
+    if period < 1:
+        return output
+    total = 0.0
+    for index, value in enumerate(values):
+        total += value
+        if index >= period:
+            total -= values[index - period]
+        if index >= period - 1:
+            output[index] = total / period
+    return output
 
 
 def ema_series(values: list[float], period: int) -> list[float | None]:
@@ -104,7 +119,7 @@ def stoch_rsi_too_high(k_value: float | None, ceiling: float = STOCH_RSI_MAX) ->
 
 
 def ribbon_buy_at(fast: list[float | None], mid: list[float | None], slow: list[float | None], index: int) -> bool:
-    """EMA 7, EMA 20'yi yukarı kesiyor ve ikisi de EMA 99'un üstünde."""
+    """SMA 7, SMA 20'yi yukarı kesiyor ve ikisi de SMA 99'un üstünde."""
     if index < 1:
         return False
     try:
@@ -217,9 +232,9 @@ def select_recent_cross(
     """
     if len(closes) < 2 or len(stamps) != len(closes):
         return None
-    fast = ema_series(closes, RIBBON_FAST)
-    mid = ema_series(closes, RIBBON_MID)
-    slow = ema_series(closes, RIBBON_SLOW)
+    fast = sma_series(closes, RIBBON_FAST)
+    mid = sma_series(closes, RIBBON_MID)
+    slow = sma_series(closes, RIBBON_SLOW)
     k_line = stoch_rsi_k(closes)
     earliest = int(now_ms) - int(window_ms)
     for index in range(len(closes) - 1, 0, -1):
@@ -264,9 +279,9 @@ def closed_ribbon_buy(closes: list[float]) -> bool:
     """Son kapanmış mumda kurdele alımı var mı. Seride oluşan mum olmamalı."""
     if len(closes) < RIBBON_SLOW + 1:
         return False
-    fast = ema_series(closes, RIBBON_FAST)
-    mid = ema_series(closes, RIBBON_MID)
-    slow = ema_series(closes, RIBBON_SLOW)
+    fast = sma_series(closes, RIBBON_FAST)
+    mid = sma_series(closes, RIBBON_MID)
+    slow = sma_series(closes, RIBBON_SLOW)
     return ribbon_buy_at(fast, mid, slow, len(closes) - 1)
 
 

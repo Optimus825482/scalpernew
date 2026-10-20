@@ -130,7 +130,7 @@ export default function OtonomPaperPage() {
 
       {(stats?.by_source?.length ?? 0) > 0 && (
         <Card className="p-4">
-          <SectionHeader eyebrow="Kaynak" title="Kaynağa göre başarı" description="Kapanan otonom işlemler, açılışı tetikleyen sinyale göre. EMA Kurdele zaman dilimine ayrılır." />
+          <SectionHeader eyebrow="Kaynak" title="Kaynağa göre başarı" description="Kapanan otonom işlemler, açılışı tetikleyen sinyale göre. MA Kurdele zaman dilimine ayrılır." />
           <div className="odak-scroll mt-3">
             <table className="w-full min-w-[520px] border-collapse text-sm">
               <thead>
